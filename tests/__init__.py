@@ -1,0 +1,1 @@
+"""Тесты для Mini RAG System.""" 
