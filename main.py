@@ -27,16 +27,16 @@ async def lifespan(app: FastAPI):
     """Управление жизненным циклом приложения."""
     
     # Startup
-    logger.info("🚀 Starting Mini RAG System...")
+    logger.info("Starting Mini RAG System...")
     
     try:
         # Создаем таблицы в базе данных
-        logger.info("📊 Creating database tables...")
+        logger.info("Creating database tables...")
         create_tables()
-        logger.info("✅ Database tables created successfully")
+        logger.info("Database tables created successfully")
         
         # Здесь можно добавить другие инициализации
-        logger.info("🔧 Initializing services...")
+        logger.info("Initializing services...")
         
         # Проверяем доступность сервисов
         from app.services.embedding_service import get_embedding_service
@@ -45,41 +45,41 @@ async def lifespan(app: FastAPI):
         # Инициализируем сервис эмбеддингов
         try:
             embedding_service = get_embedding_service()
-            logger.info("✅ Embedding service initialized")
+            logger.info("Embedding service initialized")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize embedding service: {e}")
+            logger.error(f"Failed to initialize embedding service: {e}")
         
         # Проверяем LLaMA сервер
         try:
             llama_client = get_llama_client()
             health = await llama_client.health_check()
             if health["status"] == "healthy":
-                logger.info("✅ LLaMA server is healthy")
+                logger.info("LLaMA server is healthy")
             else:
-                logger.warning(f"⚠️ LLaMA server health check failed: {health.get('error', 'Unknown')}")
+                logger.warning(f"LLaMA server health check failed: {health.get('error', 'Unknown')}")
         except Exception as e:
-            logger.error(f"❌ Failed to check LLaMA server: {e}")
+            logger.error(f"Failed to check LLaMA server: {e}")
         
-        logger.info("🎉 Mini RAG System started successfully!")
+        logger.info("Mini RAG System started successfully!")
         
     except Exception as e:
-        logger.error(f"❌ Failed to start application: {e}")
+        logger.error(f"Failed to start application: {e}")
         raise
     
     yield
     
     # Shutdown
-    logger.info("🛑 Shutting down Mini RAG System...")
+    logger.info("Shutting down Mini RAG System...")
     
     # Закрываем соединения
     try:
         llama_client = get_llama_client()
         await llama_client.client.aclose()
-        logger.info("✅ HTTP connections closed")
+        logger.info("HTTP connections closed")
     except Exception as e:
-        logger.error(f"❌ Error during shutdown: {e}")
+        logger.error(f"Error during shutdown: {e}")
     
-    logger.info("👋 Mini RAG System shutdown complete")
+    logger.info("Mini RAG System shutdown complete")
 
 
 # Создаем приложение FastAPI
@@ -109,7 +109,7 @@ async def log_requests(request: Request, call_next):
     start_time = time.time()
     
     # Логируем входящий запрос
-    logger.info(f"📥 {request.method} {request.url.path} - {request.client.host}")
+    logger.info(f"[IN] {request.method} {request.url.path} - {request.client.host}")
     
     try:
         response = await call_next(request)
@@ -117,7 +117,7 @@ async def log_requests(request: Request, call_next):
         
         # Логируем ответ
         logger.info(
-            f"📤 {request.method} {request.url.path} - "
+            f"[OUT] {request.method} {request.url.path} - "
             f"{response.status_code} - {process_time:.3f}s"
         )
         
@@ -129,7 +129,7 @@ async def log_requests(request: Request, call_next):
     except Exception as e:
         process_time = time.time() - start_time
         logger.error(
-            f"❌ {request.method} {request.url.path} - "
+            f"[ERROR] {request.method} {request.url.path} - "
             f"Error: {str(e)} - {process_time:.3f}s"
         )
         raise
@@ -176,7 +176,7 @@ app.include_router(router, prefix="/api/v1")
 async def root():
     """Корневая страница."""
     return {
-        "message": "🤖 Mini RAG System API",
+        "message": "Mini RAG System API",
         "version": "1.0.0",
         "status": "running",
         "docs": "/docs",

@@ -101,16 +101,16 @@ TEST_DOCUMENTS = [
 
 async def load_test_documents():
     """Загрузка тестовых документов в векторное хранилище."""
-    print("🚀 Загружаем тестовые документы в Mini RAG System...")
+    print("Загружаем тестовые документы в Mini RAG System...")
     
     try:
         # Получаем сервис векторного хранилища
         vector_store = get_vector_store_service()
         
-        print(f"📚 Найдено {len(TEST_DOCUMENTS)} тестовых документов")
+        print(f"Найдено {len(TEST_DOCUMENTS)} тестовых документов")
         
         for i, doc in enumerate(TEST_DOCUMENTS, 1):
-            print(f"📄 [{i}/{len(TEST_DOCUMENTS)}] Обрабатываем: {doc['title']}")
+            print(f"[{i}/{len(TEST_DOCUMENTS)}] Обрабатываем: {doc['title']}")
             
             try:
                 document_id, chunks_created = await vector_store.add_document(
@@ -119,25 +119,25 @@ async def load_test_documents():
                     metadata=doc["metadata"]
                 )
                 
-                print(f"   ✅ ID: {document_id[:8]}..., чунков: {chunks_created}")
+                print(f"   OK - ID: {document_id[:8]}..., чунков: {chunks_created}")
                 
             except Exception as e:
-                print(f"   ❌ Ошибка загрузки документа '{doc['title']}': {e}")
+                print(f"   ERROR - Ошибка загрузки документа '{doc['title']}': {e}")
                 continue
         
-        print("\n🎉 Загрузка завершена!")
-        print("\n📊 Для проверки выполните:")
+        print("\nЗагрузка завершена!")
+        print("\nДля проверки выполните:")
         print("curl http://localhost:8000/api/v1/stats")
         
     except Exception as e:
-        print(f"❌ Критическая ошибка: {e}")
+        print(f"CRITICAL ERROR: {e}")
         sys.exit(1)
 
 
 def main():
     """Главная функция."""
     print("=" * 60)
-    print("📚 Mini RAG System - Загрузка тестовых данных")
+    print("Mini RAG System - Загрузка тестовых данных")
     print("=" * 60)
     
     # Запускаем загрузку
