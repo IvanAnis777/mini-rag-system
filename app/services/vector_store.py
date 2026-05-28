@@ -32,7 +32,7 @@ class VectorStoreService:
         if not content.strip():
             raise ValueError("Document content cannot be empty")
         
-        # Разбиваем документ на чунки
+        # Разбиваем документ на чанки
         chunks = self._split_text(content)
         
         if not chunks:
@@ -51,7 +51,7 @@ class VectorStoreService:
             session.add(document)
             session.flush()  # Получаем ID документа
             
-            # Создаем чунки с эмбеддингами
+            # Создаем чанки с эмбеддингами
             document_chunks = []
             for i, (chunk_content, embedding) in enumerate(zip(chunks, embeddings)):
                 chunk = DocumentChunk(
@@ -139,7 +139,7 @@ class VectorStoreService:
             return chunks
     
     def _split_text(self, text: str) -> List[str]:
-        """Разбиение текста на чунки."""
+        """Разбиение текста на чанки."""
         
         chunk_size = settings.rag.chunk_size
         chunk_overlap = settings.rag.chunk_overlap
@@ -178,7 +178,7 @@ class VectorStoreService:
             if start <= 0:
                 start = end
         
-        # Убираем пустые чунки
+        # Убираем пустые чанки
         chunks = [chunk for chunk in chunks if chunk.strip()]
         
         return chunks
@@ -199,7 +199,7 @@ class VectorStoreService:
     def delete_document(self, document_id: str) -> bool:
         """Удаление документа и всех его чунков."""
         with get_db_session() as session:
-            # Удаляем чунки
+            # Удаляем чанки
             deleted_chunks = session.query(DocumentChunk)\
                 .filter(DocumentChunk.document_id == document_id)\
                 .delete()

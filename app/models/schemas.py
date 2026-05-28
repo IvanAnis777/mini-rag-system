@@ -24,7 +24,7 @@ class QueryResponse(BaseModel):
     answer: str = Field(..., description="Ответ в формате Markdown")
     sources: List[str] = Field(default_factory=list, description="Список источников с цитированием")
     query_rewritten: str = Field(..., description="Переформулированный запрос")
-    context_chunks: List[DocumentChunk] = Field(default_factory=list, description="Использованные чунки")
+    context_chunks: List[DocumentChunk] = Field(default_factory=list, description="Использованные чанки")
     confidence: float = Field(..., description="Уверенность в ответе", ge=0.0, le=1.0)
     processing_time: float = Field(..., description="Время обработки в секундах")
 
@@ -72,7 +72,7 @@ class SearchRequest(BaseModel):
 
 class SearchResponse(BaseModel):
     """Ответ поиска."""
-    results: List[DocumentChunk] = Field(..., description="Найденные чунки")
+    results: List[DocumentChunk] = Field(..., description="Найденные чанки")
     total_found: int = Field(..., description="Общее количество найденных результатов")
     query_embedding_time: float = Field(..., description="Время векторизации запроса")
     search_time: float = Field(..., description="Время поиска")

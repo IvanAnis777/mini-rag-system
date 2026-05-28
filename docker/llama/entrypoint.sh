@@ -20,15 +20,13 @@ echo "   Context size: $N_CTX"
 echo "   GPU layers: $N_GPU_LAYERS"
 echo "   Parallel requests: $N_PARALLEL"
 
-# Запускаем LLaMA сервер
-exec ./server \
+# Запускаем LLaMA сервер (в ggml-org образе бинарь — /app/llama-server)
+exec /app/llama-server \
     --model "$MODEL_PATH" \
     --host "$HOST" \
     --port "$PORT" \
     --ctx-size "$N_CTX" \
     --n-gpu-layers "$N_GPU_LAYERS" \
     --parallel "$N_PARALLEL" \
-    --threads $(nproc) \
-    --batch-size 512 \
-    --log-format text \
-    --verbose 
+    --threads "$(nproc)" \
+    --batch-size 512 

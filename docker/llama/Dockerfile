@@ -1,5 +1,6 @@
 # Dockerfile для LLaMA сервера
-FROM ghcr.io/ggerganov/llama.cpp:server
+# Образ llama.cpp переехал из ggerganov в ggml-org; бинарь теперь /app/llama-server
+FROM ghcr.io/ggml-org/llama.cpp:server
 
 # Устанавливаем рабочую директорию
 WORKDIR /app

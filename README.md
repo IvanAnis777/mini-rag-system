@@ -28,6 +28,8 @@ graph TB
     Embed --> ST[SentenceTransformers]
 ```
 
+
+
 ## Агентный RAG (LangGraph)
 
 Кроме линейного `/query` есть агентный эндпоинт `/query/agentic` — граф самокоррекции
@@ -46,8 +48,11 @@ graph TD
     E -->|ок| F[END]
 ```
 
+
+
 Что это даёт против линейного пайплайна:
-- **grade_documents** — LLM отсеивает нерелевантные чунки до генерации;
+
+- **grade_documents** — LLM отсеивает нерелевантные чанки до генерации;
 - **transform_query** — при слабом поиске запрос переформулируется и поиск повторяется (с лимитом);
 - **grade_generation** — ответ проверяется на обоснованность контекстом (анти-галлюцинация) и на то, отвечает ли он по существу.
 
@@ -73,10 +78,37 @@ pytest tests/test_rag_graph.py -o asyncio_mode=auto -q
 llama (без внешних API).
 
 ```bash
-pip install -r requirements-eval.txt        # ragas + langchain-openai + langchain-huggingface
+pip install -r requirements-eval.txt        # ragas + langchain-openai/anthropic + langchain-huggingface
 python eval/ingest_corpus.py                  # загрузить корпус в pgvector
 python eval/run_ragas.py                      # прогон + отчёт в eval/report.md
-# судить через OpenAI: RAGAS_JUDGE=openai OPENAI_API_KEY=... python eval/run_ragas.py
+# судья по умолчанию = LLM_BACKEND; переопределить: RAGAS_JUDGE=openai|anthropic|local
+```
+
+## Выбор модели и бэкенда
+
+Система **model-agnostic**: `api` ходит к LLM по HTTP/OpenAI-совместимому интерфейсу и
+не зависит от конкретной модели. Переключение — без правок кода.
+
+### Локальная модель (GGUF) — реестр
+
+```bash
+make download-model MODEL=qwen      # qwen | mistral | llama3 | llama2 (по умолч.)
+make restart                        # подхватит MODEL_FILE из .env
+```
+
+`download-model` качает GGUF и прописывает `MODEL_FILE` в `.env`; `docker-compose`
+монтирует нужный файл в `llama-server`. Доступно: Llama-2-7B, Qwen2.5-7B,
+Mistral-7B-v0.3, Llama-3.1-8B (все Q4_K_M).
+
+### Бэкенд: локально ↔ облако
+
+Один и тот же агентный граф работает на локальной llama или в облаке —
+переменная `LLM_BACKEND` (`app/services/llm_provider.py`):
+
+```bash
+LLM_BACKEND=llama                                   # локально, по умолчанию, без ключей
+LLM_BACKEND=anthropic  ANTHROPIC_API_KEY=sk-ant-... # Claude
+LLM_BACKEND=openai     OPENAI_API_KEY=sk-...         # GPT
 ```
 
 ## Быстрый старт
@@ -90,12 +122,14 @@ python eval/run_ragas.py                      # прогон + отчёт в eva
 ### Установка
 
 1. **Клонируйте репозиторий**
+
 ```bash
 git clone <your-repo-url>
 cd mini-rag-system
 ```
 
-2. **Скачайте LLaMA модель**
+1. **Скачайте LLaMA модель**
+
 ```bash
 # Создайте директорию для моделей
 mkdir -p data/models
@@ -105,18 +139,21 @@ wget https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGUF/resolve/main/llama-2-7
      -O data/models/llama-3-8b-instruct.gguf
 ```
 
-3. **Настройте окружение**
+1. **Настройте окружение**
+
 ```bash
 cp config.env.example .env
 # Отредактируйте .env при необходимости
 ```
 
-4. **Запустите систему**
+1. **Запустите систему**
+
 ```bash
 docker-compose up -d
 ```
 
-5. **Проверьте статус**
+1. **Проверьте статус**
+
 ```bash
 curl http://localhost:8000/api/v1/health
 ```
@@ -126,12 +163,14 @@ curl http://localhost:8000/api/v1/health
 ### Веб-интерфейс
 
 Откройте в браузере:
-- **API документация**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+
+- **API документация**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
 ### Примеры API запросов
 
 #### Загрузка документа
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/documents" \
      -H "Content-Type: application/json" \
@@ -143,6 +182,7 @@ curl -X POST "http://localhost:8000/api/v1/documents" \
 ```
 
 #### Задать вопрос
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/query" \
      -H "Content-Type: application/json" \
@@ -154,6 +194,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 ```
 
 #### Поиск документов
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/search" \
      -H "Content-Type: application/json" \
@@ -169,6 +210,7 @@ curl -X POST "http://localhost:8000/api/v1/search" \
 ### Запуск с нуля за 5 минут
 
 #### Шаг 1: Подготовка среды
+
 ```bash
 # Настраиваем проект (создает .env, папки)
 make dev-setup
@@ -178,6 +220,7 @@ ls -la
 ```
 
 #### Шаг 2: Запуск сервисов (без LLaMA)
+
 ```bash
 # Запускаем PostgreSQL, Redis (быстро)
 make up
@@ -187,18 +230,21 @@ make status
 ```
 
 #### Шаг 3: Инициализация базы данных
+
 ```bash
 # Создаем таблицы для векторного хранилища
 make init-db
 ```
 
 #### Шаг 4: Загрузка тестовых данных
+
 ```bash
 # Загружаем примеры документов о ML/AI
 make load-test-data
 ```
 
 #### Шаг 5: Тестируем систему
+
 ```bash
 # Открываем веб-интерфейс
 open http://localhost:8000/docs
@@ -222,16 +268,19 @@ make restart
 ### Способы использования
 
 #### 1. Веб-интерфейс (самый простой)
-- **API документация**: http://localhost:8000/docs
-- **Альтернативная документация**: http://localhost:8000/redoc
+
+- **API документация**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Альтернативная документация**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
 В веб-интерфейсе можно:
+
 - Загружать документы через форму
 - Задавать вопросы и получать ответы
 - Искать по базе знаний
 - Смотреть статистику системы
 
 #### 2. Через Python код
+
 ```python
 import requests
 
@@ -261,6 +310,7 @@ print("Уверенность:", result["confidence"])
 ```
 
 #### 3. Интеграция в чат-бот
+
 ```python
 class RAGChatBot:
     def __init__(self, base_url="http://localhost:8000/api/v1"):
@@ -289,6 +339,7 @@ print(answer["answer"])
 ### Практические сценарии
 
 #### Корпоративная база знаний
+
 ```bash
 # 1. Загружаем документы компании
 curl -X POST "http://localhost:8000/api/v1/documents" \
@@ -306,6 +357,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 ```
 
 #### Образовательный помощник
+
 ```python
 # Загружаем учебные материалы
 materials = [
@@ -325,6 +377,7 @@ answer = requests.post(f"{BASE_URL}/query", json={
 ```
 
 #### Техподдержка
+
 ```python
 # Загружаем FAQ и инструкции
 faq_data = {
@@ -417,9 +470,10 @@ lsof -i :6379  # Redis
 - **База знаний** с тестовыми документами  
 - **REST API** для интеграции в приложения  
 - **Примеры использования** на Python  
-- **Мониторинг и логирование**  
+- **Мониторинг и логирование**
 
 Система готова для:
+
 - Создания корпоративных баз знаний
 - Образовательных платформ  
 - Умных чат-ботов
@@ -468,26 +522,31 @@ SIMILARITY_THRESHOLD=0.7
 
 ## Docker Services
 
-| Сервис | Порт | Описание |
-|--------|------|----------|
-| api | 8000 | FastAPI приложение |
+
+| Сервис       | Порт | Описание               |
+| ------------ | ---- | ---------------------- |
+| api          | 8000 | FastAPI приложение     |
 | llama-server | 8080 | LLaMA inference сервер |
-| postgres | 5432 | PostgreSQL + pgvector |
-| redis | 6379 | Кэш для эмбеддингов |
+| postgres     | 5432 | PostgreSQL + pgvector  |
+| redis        | 6379 | Кэш для эмбеддингов    |
+
 
 ## Мониторинг
 
 ### Health Check
+
 ```bash
 curl http://localhost:8000/api/v1/health
 ```
 
 ### Системная статистика
+
 ```bash
 curl http://localhost:8000/api/v1/stats
 ```
 
 ### Логи
+
 ```bash
 # Все сервисы
 docker-compose logs -f
@@ -514,21 +573,25 @@ python -m pytest tests/test_rag.py -v
 ### Локальная разработка
 
 1. **Установите зависимости**
+
 ```bash
 pip install -r requirements.txt
 ```
 
-2. **Запустите зависимости в Docker**
+1. **Запустите зависимости в Docker**
+
 ```bash
 docker-compose up -d postgres redis llama-server
 ```
 
-3. **Создайте таблицы**
+1. **Создайте таблицы**
+
 ```bash
 python -c "from app.core.database import create_tables; create_tables()"
 ```
 
-4. **Запустите API**
+1. **Запустите API**
+
 ```bash
 python main.py
 ```
@@ -560,16 +623,14 @@ python main.py
 ### Частые проблемы:
 
 1. **LLaMA сервер не запускается**
-   - Проверьте наличие модели в `data/models/`
-   - Убедитесь в достатке RAM
-
+  - Проверьте наличие модели в `data/models/`
+  - Убедитесь в достатке RAM
 2. **Медленные эмбеддинги**
-   - Проверьте подключение к Redis
-   - Рассмотрите GPU-ускорение
-
+  - Проверьте подключение к Redis
+  - Рассмотрите GPU-ускорение
 3. **Ошибки PostgreSQL**
-   - Убедитесь, что pgvector расширение установлено
-   - Проверьте настройки памяти
+  - Убедитесь, что pgvector расширение установлено
+  - Проверьте настройки памяти
 
 ### Логи и отладка:
 

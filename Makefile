@@ -134,14 +134,28 @@ monitor: ## Показать системную статистику
 	@echo "$(BLUE)📈 Системная статистика:$(NC)"
 	-curl -s http://localhost:8000/api/v1/stats | jq '.' || echo "API недоступен"
 
-# Скачивание модели LLaMA
-download-model: ## Скачать тестовую модель LLaMA
-	@echo "$(BLUE)⬇️ Скачиваем модель LLaMA...$(NC)"
-	mkdir -p data/models
-	@echo "$(YELLOW)Скачивание может занять длительное время...$(NC)"
-	curl -L -C - -o data/models/llama-3-8b-instruct.gguf \
-		https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGUF/resolve/main/llama-2-7b-chat.Q4_K_M.gguf
-	@echo "$(GREEN)✅ Модель скачана!$(NC)"
+# Скачивание модели (реестр GGUF). Пример: make download-model MODEL=qwen
+MODEL ?= llama2
+download-model: ## Скачать GGUF-модель из реестра: MODEL=llama2|qwen|mistral|llama3 (по умолч. llama2)
+	@echo "$(BLUE)⬇️ Скачиваем модель: $(MODEL)$(NC)"
+	@mkdir -p data/models
+	@case "$(MODEL)" in \
+	  llama2)  url="https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGUF/resolve/main/llama-2-7b-chat.Q4_K_M.gguf"; file="llama-3-8b-instruct.gguf";; \
+	  qwen)    url="https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf"; file="qwen2.5-7b-instruct-q4_k_m.gguf";; \
+	  mistral) url="https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"; file="mistral-7b-instruct-v0.3-q4_k_m.gguf";; \
+	  llama3)  url="https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"; file="meta-llama-3.1-8b-instruct-q4_k_m.gguf";; \
+	  *) echo "$(RED)❌ Неизвестная MODEL=$(MODEL). Доступно: llama2|qwen|mistral|llama3$(NC)"; exit 1;; \
+	esac; \
+	echo "$(YELLOW)Файл: $$file (докачка поддерживается, можно прервать и повторить)$(NC)"; \
+	curl -L -C - -o "data/models/$$file" "$$url"; \
+	touch .env; \
+	if grep -q '^MODEL_FILE=' .env; then \
+	  sed -i.bak "s|^MODEL_FILE=.*|MODEL_FILE=$$file|" .env && rm -f .env.bak; \
+	else \
+	  echo "MODEL_FILE=$$file" >> .env; \
+	fi; \
+	echo "$(GREEN)✅ Модель скачана, в .env прописан MODEL_FILE=$$file$(NC)"; \
+	echo "$(BLUE)Теперь: make restart$(NC)"
 
 # Резервное копирование
 backup: ## Создать резервную копию данных

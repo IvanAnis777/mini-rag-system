@@ -244,10 +244,9 @@ def get_agentic_rag_graph():
     """
     from app.core.config import settings
     from app.services.vector_store import get_vector_store_service
-    from app.services.llama_client import get_llama_client
+    from app.services.llm_provider import get_llm_fn
 
     vector_store = get_vector_store_service()
-    llama_client = get_llama_client()
 
     async def retriever(query: str, limit: int) -> List[dict]:
         chunks = await vector_store.search_similar(
@@ -263,14 +262,8 @@ def get_agentic_rag_graph():
             for c in chunks
         ]
 
-    async def llm(prompt: str, system_prompt: Optional[str] = None) -> str:
-        result = await llama_client.generate_completion(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            max_tokens=settings.llama.max_tokens,
-            temperature=settings.llama.temperature,
-        )
-        return result.get("content", "") if result.get("success") else ""
+    # LLM-бэкенд определяется LLM_BACKEND (llama | anthropic | openai)
+    llm = get_llm_fn()
 
     return CorrectiveRagGraph(
         retriever=retriever,

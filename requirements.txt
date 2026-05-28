@@ -2,14 +2,20 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 langgraph>=0.2.0
 langchain-core>=0.3.0
-llama-cpp-python==0.2.20
-sentence-transformers==2.2.2
+# Облачные LLM-бэкенды (LLM_BACKEND=anthropic|openai); для llama не требуются
+anthropic>=0.40.0
+openai>=1.40.0
+# Примечание: llama-cpp-python не нужен — инференс выполняет контейнер llama-server,
+# а API ходит к нему по HTTP (см. app/services/llama_client.py).
+# ST 2.2.2 ломается с новым huggingface_hub (убран cached_download) → берём 3.x
+sentence-transformers>=3.0.0
 pgvector==0.2.4
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.23
 alembic==1.13.1
-pydantic==2.5.2
-pydantic-settings==2.1.0
+# langchain-core>=0.3 требует pydantic>=2.7.4
+pydantic>=2.7.4
+pydantic-settings>=2.2.0
 numpy==1.24.4
 redis==5.0.1
 celery==5.3.4

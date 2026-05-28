@@ -24,7 +24,7 @@ services:
       context: ./docker/llama
       dockerfile: Dockerfile
     environment:
-      MODEL_PATH: /models/llama-3-8b-instruct.gguf
+      MODEL_PATH: /models/${MODEL_FILE:-llama-3-8b-instruct.gguf}
       HOST: 0.0.0.0
       PORT: 8080
       N_GPU_LAYERS: 0
@@ -51,6 +51,12 @@ services:
       LLAMA_SERVER_URL: http://llama-server:8080
       SYSTEM_PROMPT_FILE: /app/prompts/mini-rag-system-prompt.txt
       VECTOR_STORE_TYPE: pgvector
+      # Провайдер LLM для агентного графа: llama | anthropic | openai
+      LLM_BACKEND: ${LLM_BACKEND:-llama}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
     ports:
       - "8000:8000"
     volumes:

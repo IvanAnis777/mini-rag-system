@@ -70,12 +70,23 @@ def build_judge():
     from ragas.llms import LangchainLLMWrapper
     from ragas.embeddings import LangchainEmbeddingsWrapper
 
-    judge = os.getenv("RAGAS_JUDGE", "local").lower()
+    # По умолчанию судья = выбранный бэкенд приложения (LLM_BACKEND), можно переопределить RAGAS_JUDGE
+    judge = os.getenv("RAGAS_JUDGE", settings.llm.backend).lower()
+    if judge == "llama":
+        judge = "local"
 
     if judge == "openai":
         from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        llm = ChatOpenAI(model=settings.llm.openai_model, temperature=0)
         emb = OpenAIEmbeddings(model="text-embedding-3-small")
+    elif judge == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+        llm = ChatAnthropic(model=settings.llm.anthropic_model, temperature=0)
+        try:
+            from langchain_huggingface import HuggingFaceEmbeddings
+        except ImportError:
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+        emb = HuggingFaceEmbeddings(model_name=settings.vector_store.embedding_model)
     else:
         # Локальная llama через OpenAI-совместимый эндпоинт llama.cpp
         from langchain_openai import ChatOpenAI
