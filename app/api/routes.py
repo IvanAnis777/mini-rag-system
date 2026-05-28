@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models.schemas import (
     QueryRequest, QueryResponse, DocumentUploadRequest, DocumentUploadResponse,
-    HealthResponse, SearchRequest, SearchResponse, ErrorResponse
+    HealthResponse, SearchRequest, SearchResponse, ErrorResponse, AgenticQueryResponse
 )
 from app.services.rag_service import get_rag_service
 from app.services.vector_store import get_vector_store_service
@@ -48,6 +48,42 @@ async def process_query(request: QueryRequest, http_request: Request):
             status_code=500,
             detail=f"Ошибка обработки запроса: {str(e)}"
         )
+
+
+@router.post("/query/agentic", response_model=AgenticQueryResponse)
+async def process_query_agentic(request: QueryRequest):
+    """Агентный RAG на LangGraph: retrieve → grade → (transform↺) → generate → self-check.
+
+    В отличие от линейного /query умеет отсеивать нерелевантные документы,
+    переформулировать запрос при слабом поиске и перегенерировать ответ при галлюцинации.
+    Возвращает трейс шагов графа.
+    """
+    from app.services.rag_graph import get_agentic_rag_graph
+
+    start_time = time.time()
+    try:
+        graph = get_agentic_rag_graph()
+        result = await graph.ainvoke(
+            {"question": request.question, "query": request.question}
+        )
+        docs = result.get("documents", [])
+        sources = [
+            f"▲{i} " + " ".join(d.get("content", "").split()[:12])
+            for i, d in enumerate(docs, 1)
+        ]
+        return AgenticQueryResponse(
+            answer=result.get("generation", ""),
+            sources=sources,
+            documents_used=len(docs),
+            transforms=result.get("transforms", 0),
+            generations=result.get("generations", 0),
+            grounded=bool(result.get("grounded", False)),
+            answers_question=bool(result.get("answers_question", False)),
+            trace=result.get("trace", []),
+            processing_time=time.time() - start_time,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка агентной обработки: {str(e)}")
 
 
 @router.post("/documents", response_model=DocumentUploadResponse)

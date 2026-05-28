@@ -29,6 +29,19 @@ class QueryResponse(BaseModel):
     processing_time: float = Field(..., description="Время обработки в секундах")
 
 
+class AgenticQueryResponse(BaseModel):
+    """Ответ агентного RAG (LangGraph) с трейсом самокоррекции."""
+    answer: str = Field(..., description="Итоговый ответ")
+    sources: List[str] = Field(default_factory=list, description="Источники с цитированием")
+    documents_used: int = Field(..., description="Сколько релевантных чунков попало в контекст")
+    transforms: int = Field(..., description="Число переформулировок запроса")
+    generations: int = Field(..., description="Число попыток генерации")
+    grounded: bool = Field(..., description="Ответ обоснован контекстом (не галлюцинация)")
+    answers_question: bool = Field(..., description="Ответ отвечает по существу")
+    trace: List[str] = Field(default_factory=list, description="Лог шагов графа")
+    processing_time: float = Field(..., description="Время обработки в секундах")
+
+
 class DocumentUploadRequest(BaseModel):
     """Запрос на загрузку документа."""
     content: str = Field(..., description="Содержимое документа")

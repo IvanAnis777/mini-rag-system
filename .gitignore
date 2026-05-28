@@ -127,6 +127,10 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.venv-graph/
+
+# Generated eval reports
+eval/report.md
 
 # Spyder project settings
 .spyderproject

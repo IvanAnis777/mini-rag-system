@@ -5,8 +5,10 @@
 ## Возможности
 
 - **RAG Pipeline**: Система поиска и генерации ответов
+- **Агентный RAG (LangGraph)**: corrective / self-RAG с грейдингом документов, переформулировкой запроса и самопроверкой ответа на галлюцинации
+- **Оценка качества (Ragas)**: faithfulness, answer relevancy, context precision/recall на фарма-корпусе
 - **Векторное хранилище**: PostgreSQL + pgvector для семантического поиска
-- **LLaMA интеграция**: Поддержка LLaMA моделей
+- **LLaMA интеграция**: локальный инференс через llama.cpp (OpenAI-совместимый сервер)
 - **Кэширование**: Redis для оптимизации эмбеддингов
 - **REST API**: FastAPI с документацией
 - **Docker**: Контейнеризированное решение
@@ -24,6 +26,57 @@ graph TB
     RAG --> Embed[Embedding Service]
     Embed --> Redis[Redis Cache]
     Embed --> ST[SentenceTransformers]
+```
+
+## Агентный RAG (LangGraph)
+
+Кроме линейного `/query` есть агентный эндпоинт `/query/agentic` — граф самокоррекции
+(`app/services/rag_graph.py`), реализующий corrective / self-RAG поверх тех же
+vector_store и llama_client:
+
+```mermaid
+graph TD
+    A[retrieve] --> B[grade_documents]
+    B -->|есть релевантные| D[generate]
+    B -->|нет релевантных| C[transform_query]
+    C --> A
+    D --> E[grade_generation]
+    E -->|галлюцинация| D
+    E -->|не отвечает| C
+    E -->|ок| F[END]
+```
+
+Что это даёт против линейного пайплайна:
+- **grade_documents** — LLM отсеивает нерелевантные чунки до генерации;
+- **transform_query** — при слабом поиске запрос переформулируется и поиск повторяется (с лимитом);
+- **grade_generation** — ответ проверяется на обоснованность контекстом (анти-галлюцинация) и на то, отвечает ли он по существу.
+
+Ответ возвращает `trace` шагов, число переформулировок и флаги `grounded` / `answers_question`.
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/query/agentic" \
+     -H "Content-Type: application/json" \
+     -d '{"question": "Какая максимальная суточная доза парацетамола?"}'
+```
+
+Логика маршрутизации покрыта юнит-тестами на стабах (без БД и LLaMA):
+
+```bash
+pytest tests/test_rag_graph.py -o asyncio_mode=auto -q
+```
+
+## Оценка качества (Ragas)
+
+Численная оценка агентного RAG на доменном фарма-корпусе (`eval/corpus/`, QA в
+`eval/pharma_qa.jsonl`). Метрики: **faithfulness**, **answer relevancy**,
+**context precision**, **context recall**. Судьёй по умолчанию выступает локальная
+llama (без внешних API).
+
+```bash
+pip install -r requirements-eval.txt        # ragas + langchain-openai + langchain-huggingface
+python eval/ingest_corpus.py                  # загрузить корпус в pgvector
+python eval/run_ragas.py                      # прогон + отчёт в eval/report.md
+# судить через OpenAI: RAGAS_JUDGE=openai OPENAI_API_KEY=... python eval/run_ragas.py
 ```
 
 ## Быстрый старт
