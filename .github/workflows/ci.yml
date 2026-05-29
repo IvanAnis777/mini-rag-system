@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:   # кнопка «Run workflow» во вкладке Actions — ручной запуск
 
 jobs:
   unit-tests:
