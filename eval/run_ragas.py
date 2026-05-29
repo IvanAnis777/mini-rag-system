@@ -147,6 +147,13 @@ def run_eval(samples):
         LLMContextPrecisionWithReference,
         LLMContextRecall,
     )
+    from ragas.run_config import RunConfig
+
+    # Умеренный параллелизм + ретраи с бэкоффом под TPM-лимит судьи.
+    # Groq free = 12000 ток/мин; при свежей суточной квоте этого хватает на чистый
+    # прогон. timeout держим небольшим (180с): зависшую на лимите задачу лучше
+    # быстро ретраить, чем блокировать прогон на минуты.
+    run_config = RunConfig(max_workers=4, timeout=180, max_retries=10, max_wait=30)
 
     llm, emb = build_judge()
     dataset = EvaluationDataset.from_list(
@@ -166,7 +173,7 @@ def run_eval(samples):
         LLMContextPrecisionWithReference(llm=llm),
         LLMContextRecall(llm=llm),
     ]
-    return evaluate(dataset=dataset, metrics=metrics, llm=llm, embeddings=emb)
+    return evaluate(dataset=dataset, metrics=metrics, llm=llm, embeddings=emb, run_config=run_config)
 
 
 def write_report(result, samples):
