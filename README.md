@@ -1,5 +1,7 @@
 # Mini RAG System
 
+[![CI](https://github.com/IvanAnis777/mini-rag-system/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanAnis777/mini-rag-system/actions/workflows/ci.yml)
+
 Система вопросов и ответов с использованием RAG (Retrieval-Augmented Generation). Проект разработан для создания умного помощника, который может отвечать на вопросы на основе загруженных документов.
 
 ## Возможности

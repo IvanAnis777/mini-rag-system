@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit-tests:
+    name: Unit tests (agentic-RAG graph)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # пины проекта рассчитаны на 3.11
+
+      # Граф-тесты на стабах (tests/test_rag_graph.py) не требуют БД/LLM/модели —
+      # достаточно langgraph + раннера. Поэтому ставим минимум, без тяжёлого стека
+      # (torch/sentence-transformers), и CI остаётся быстрым.
+      - name: Install minimal deps
+        run: pip install langgraph pytest pytest-asyncio
+
+      - name: Run agentic-graph unit tests
+        run: python -m pytest tests/test_rag_graph.py -o asyncio_mode=auto -v
+
+# Примечание: интеграционные тесты (tests/test_api.py) требуют поднятого стека
+# (postgres + llama-server с GGUF-моделью ~4.4 ГБ) и гоняются локально через Docker:
+#   make up && make test
+# В CI они не запускаются — модель слишком большая для раннера.
