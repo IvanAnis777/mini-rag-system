@@ -18,7 +18,8 @@ class Document(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String(500), nullable=False)
     content = Column(Text, nullable=False)
-    metadata = Column(JSON, default=dict)
+    # 'metadata' зарезервировано в Declarative API → атрибут doc_metadata, колонка в БД "metadata"
+    doc_metadata = Column("metadata", JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -37,8 +38,9 @@ class DocumentChunk(Base):
     
     # Векторное представление (384 измерения для all-MiniLM-L6-v2)
     embedding = Column(Vector(384), nullable=False)
-    
-    metadata = Column(JSON, default=dict)
+
+    # 'metadata' зарезервировано в Declarative API → атрибут doc_metadata, колонка в БД "metadata"
+    doc_metadata = Column("metadata", JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     def __repr__(self):

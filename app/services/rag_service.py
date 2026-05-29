@@ -157,10 +157,15 @@ Format your response as:
             language
         )
         
-        # Генерируем ответ
-        result = await self.llama_client.generate_completion(
-            prompt=user_prompt,
-            system_prompt=self.system_prompt,
+        # Генерируем ответ через chat-эндпоинт: llama.cpp сам применяет родной
+        # шаблон модели (ChatML у Qwen) и корректные стоп-токены. Raw /completions
+        # с самодельными стопами оставлял хвостовой мусор вроде <|im_end|>/<|assistant|>.
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "user", "content": user_prompt})
+        result = await self.llama_client.generate_chat_completion(
+            messages=messages,
             max_tokens=settings.llama.max_tokens,
             temperature=settings.llama.temperature
         )

@@ -22,9 +22,14 @@ async def _llama_complete(prompt: str, system_prompt: Optional[str] = None) -> s
     from app.services.llama_client import get_llama_client
 
     client = get_llama_client()
-    result = await client.generate_completion(
-        prompt=prompt,
-        system_prompt=system_prompt,
+    # Chat-эндпоинт: llama.cpp сам применяет родной шаблон модели (Llama-2 [INST],
+    # Qwen/Mistral ChatML) — надёжнее самодельного prompt-шаблона generate_completion.
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    result = await client.generate_chat_completion(
+        messages=messages,
         max_tokens=settings.llama.max_tokens,
         temperature=settings.llama.temperature,
     )

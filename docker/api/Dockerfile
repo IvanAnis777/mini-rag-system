@@ -23,7 +23,7 @@ COPY app/ app/
 COPY main.py .
 
 # Создаем директории для данных
-RUN mkdir -p /app/data /app/prompts
+RUN mkdir -p /app/data /app/prompts /app/.cache
 
 # Создаем пользователя для безопасности
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -33,6 +33,10 @@ USER appuser
 # Переменные окружения
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
+# appuser создан без домашней папки → $HOME и кэш моделей в /app (writable)
+ENV HOME=/app
+ENV HF_HOME=/app/.cache/huggingface
+ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence-transformers
 
 # Открываем порт
 EXPOSE 8000

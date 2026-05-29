@@ -9,7 +9,9 @@ services:
       POSTGRES_PASSWORD: minirag123
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "5432:5432"
+      # 5433 на хосте, чтобы не конфликтовать с локальным host-Postgres на :5432.
+      # Внутри docker-сети БД по-прежнему на postgres:5432 (api ходит туда).
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -28,7 +30,10 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       N_GPU_LAYERS: 0
-      N_CTX: 4096
+      N_CTX: 8192
+      # N_PARALLEL=1: весь контекст идёт на один запрос (4096/4=1024 было мало —
+      # линейный /query с 5 чанками = ~1295 токенов не влезал и падал в заглушку).
+      N_PARALLEL: 1
     ports:
       - "8080:8080"
     volumes:
@@ -49,8 +54,11 @@ services:
     environment:
       DATABASE_URL: postgresql://minirag:minirag123@postgres:5432/minirag
       LLAMA_SERVER_URL: http://llama-server:8080
+      REDIS_URL: redis://redis:6379
       SYSTEM_PROMPT_FILE: /app/prompts/mini-rag-system-prompt.txt
       VECTOR_STORE_TYPE: pgvector
+      # MiniLM-L6-v2 на русском даёт невысокие косинусные скоры → снижаем порог
+      SIMILARITY_THRESHOLD: "0.3"
       # Провайдер LLM для агентного графа: llama | anthropic | openai
       LLM_BACKEND: ${LLM_BACKEND:-llama}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -62,6 +70,7 @@ services:
     volumes:
       - ./prompts:/app/prompts:ro
       - ./data:/app/data
+      - ./eval:/app/eval
     depends_on:
       postgres:
         condition: service_healthy

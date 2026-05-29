@@ -46,7 +46,7 @@ class VectorStoreService:
             document = Document(
                 title=title,
                 content=content,
-                metadata=metadata or {}
+                doc_metadata=metadata or {}
             )
             session.add(document)
             session.flush()  # Получаем ID документа
@@ -59,10 +59,10 @@ class VectorStoreService:
                     content=chunk_content,
                     chunk_index=i,
                     embedding=embedding,
-                    metadata={
+                    doc_metadata={
                         "title": title,
                         "chunk_size": len(chunk_content),
-                        **metadata or {}
+                        **(metadata or {})
                     }
                 )
                 document_chunks.append(chunk)
@@ -101,10 +101,10 @@ class VectorStoreService:
                     chunk_index,
                     metadata,
                     created_at,
-                    (1 - (embedding <=> :query_embedding)) as similarity_score
+                    (1 - (embedding <=> CAST(:query_embedding AS vector))) as similarity_score
                 FROM document_chunks
-                WHERE (1 - (embedding <=> :query_embedding)) >= :threshold
-                ORDER BY embedding <=> :query_embedding
+                WHERE (1 - (embedding <=> CAST(:query_embedding AS vector))) >= :threshold
+                ORDER BY embedding <=> CAST(:query_embedding AS vector)
                 LIMIT :limit
             """)
             

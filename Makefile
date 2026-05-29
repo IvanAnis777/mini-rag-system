@@ -135,12 +135,12 @@ monitor: ## Показать системную статистику
 	-curl -s http://localhost:8000/api/v1/stats | jq '.' || echo "API недоступен"
 
 # Скачивание модели (реестр GGUF). Пример: make download-model MODEL=qwen
-MODEL ?= llama2
-download-model: ## Скачать GGUF-модель из реестра: MODEL=llama2|qwen|mistral|llama3 (по умолч. llama2)
+MODEL ?= llama3
+download-model: ## Скачать GGUF-модель из реестра: MODEL=llama2|qwen|mistral|llama3 (по умолч. llama3)
 	@echo "$(BLUE)⬇️ Скачиваем модель: $(MODEL)$(NC)"
 	@mkdir -p data/models
 	@case "$(MODEL)" in \
-	  llama2)  url="https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGUF/resolve/main/llama-2-7b-chat.Q4_K_M.gguf"; file="llama-3-8b-instruct.gguf";; \
+	  llama2)  url="https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGUF/resolve/main/llama-2-7b-chat.Q4_K_M.gguf"; file="llama-2-7b-chat.q4_k_m.gguf";; \
 	  qwen)    url="https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf"; file="qwen2.5-7b-instruct-q4_k_m.gguf";; \
 	  mistral) url="https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"; file="mistral-7b-instruct-v0.3-q4_k_m.gguf";; \
 	  llama3)  url="https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"; file="meta-llama-3.1-8b-instruct-q4_k_m.gguf";; \
