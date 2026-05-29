@@ -33,9 +33,9 @@ async def main():
             metadata={"source": path.name, "domain": "pharma"},
         )
         total_chunks += chunks
-        print(f"  + {path.name}: doc_id={doc_id}, чунков={chunks}")
+        print(f"  + {path.name}: doc_id={doc_id}, чанков={chunks}")
 
-    print(f"Загружено документов: {len(files)}, чунков: {total_chunks}")
+    print(f"Загружено документов: {len(files)}, чанков: {total_chunks}")
 
 
 if __name__ == "__main__":

@@ -8,15 +8,15 @@ class QueryRequest(BaseModel):
     """Запрос пользователя."""
     question: str = Field(..., description="Вопрос пользователя", min_length=1, max_length=1000)
     language: Optional[str] = Field(default="ru", description="Язык ответа (ru/en)")
-    max_chunks: Optional[int] = Field(default=5, description="Максимальное количество контекстных чунков")
+    max_chunks: Optional[int] = Field(default=5, description="Максимальное количество контекстных чанков")
 
 
 class DocumentChunk(BaseModel):
-    """Чунк документа из векторного хранилища."""
-    content: str = Field(..., description="Содержимое чунка")
+    """Чанк документа из векторного хранилища."""
+    content: str = Field(..., description="Содержимое чанка")
     similarity_score: float = Field(..., description="Оценка схожести", ge=0.0, le=1.0)
     document_id: Optional[str] = Field(None, description="ID исходного документа")
-    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Метаданные чунка")
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Метаданные чанка")
 
 
 class QueryResponse(BaseModel):
@@ -33,7 +33,7 @@ class AgenticQueryResponse(BaseModel):
     """Ответ агентного RAG (LangGraph) с трейсом самокоррекции."""
     answer: str = Field(..., description="Итоговый ответ")
     sources: List[str] = Field(default_factory=list, description="Источники с цитированием")
-    documents_used: int = Field(..., description="Сколько релевантных чунков попало в контекст")
+    documents_used: int = Field(..., description="Сколько релевантных чанков попало в контекст")
     transforms: int = Field(..., description="Число переформулировок запроса")
     generations: int = Field(..., description="Число попыток генерации")
     grounded: bool = Field(..., description="Ответ обоснован контекстом (не галлюцинация)")
@@ -52,7 +52,7 @@ class DocumentUploadRequest(BaseModel):
 class DocumentUploadResponse(BaseModel):
     """Ответ на загрузку документа."""
     document_id: str = Field(..., description="ID загруженного документа")
-    chunks_created: int = Field(..., description="Количество созданных чунков")
+    chunks_created: int = Field(..., description="Количество созданных чанков")
     message: str = Field(..., description="Сообщение о статусе")
 
 

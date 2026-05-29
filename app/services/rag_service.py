@@ -184,7 +184,7 @@ Format your response as:
         return answer, confidence
     
     def _prepare_context(self, context_chunks: List[DocumentChunk]) -> str:
-        """Подготовка контекста из найденных чунков."""
+        """Подготовка контекста из найденных чанков."""
         if not context_chunks:
             return ""
         
@@ -243,7 +243,7 @@ Format your response as:
         sources = []
         
         for i, chunk in enumerate(context_chunks, 1):
-            # Берем первые 12 слов из чунка
+            # Берем первые 12 слов из чанка
             words = chunk.content.split()[:12]
             source_text = " ".join(words)
             if len(chunk.content.split()) > 12:

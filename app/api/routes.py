@@ -99,7 +99,7 @@ async def upload_document(request: DocumentUploadRequest):
         return DocumentUploadResponse(
             document_id=document_id,
             chunks_created=chunks_created,
-            message=f"Документ успешно загружен. Создано чунков: {chunks_created}"
+            message=f"Документ успешно загружен. Создано чанков: {chunks_created}"
         )
         
     except ValueError as e:

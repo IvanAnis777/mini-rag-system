@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: pgvector/pgvector:pg15
@@ -65,12 +63,20 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # Оценка качества (Ragas) — судья и ключи берутся из .env
+      RAGAS_JUDGE: ${RAGAS_JUDGE:-local}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
     ports:
       - "8000:8000"
     volumes:
       - ./prompts:/app/prompts:ro
       - ./data:/app/data
       - ./eval:/app/eval
+      - ./tests:/app/tests:ro
+      - ./scripts:/app/scripts:ro
     depends_on:
       postgres:
         condition: service_healthy

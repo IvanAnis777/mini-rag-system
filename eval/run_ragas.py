@@ -25,9 +25,13 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from app.core.config import settings
+# Внимание: app.* импортируется ТОЛЬКО в фазе collect (нужен рантайм приложения),
+# а ragas/langchain — только в фазе evaluate. Их зависимости несовместимы в одном
+# окружении (ragas тянет langchain-core<1, приложение — langchain-core>=1.4), поэтому
+# фазы запускаются раздельно и общаются через eval/samples.json.
 
 QA_PATH = Path(__file__).parent / "pharma_qa.jsonl"
+SAMPLES_PATH = Path(__file__).parent / "samples.json"
 REPORT_PATH = Path(__file__).parent / "report.md"
 
 
@@ -70,29 +74,59 @@ def build_judge():
     from ragas.llms import LangchainLLMWrapper
     from ragas.embeddings import LangchainEmbeddingsWrapper
 
-    # По умолчанию судья = выбранный бэкенд приложения (LLM_BACKEND), можно переопределить RAGAS_JUDGE
-    judge = os.getenv("RAGAS_JUDGE", settings.llm.backend).lower()
+    # По умолчанию судья = LLM_BACKEND приложения, можно переопределить RAGAS_JUDGE.
+    # В фазе evaluate настройки берём из env (app.core.config НЕ импортируем).
+    emb_model = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+    judge = os.getenv("RAGAS_JUDGE", os.getenv("LLM_BACKEND", "llama")).lower()
     if judge == "llama":
         judge = "local"
 
     if judge == "openai":
         from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-        llm = ChatOpenAI(model=settings.llm.openai_model, temperature=0)
+        llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"), temperature=0)
         emb = OpenAIEmbeddings(model="text-embedding-3-small")
-    elif judge == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        llm = ChatAnthropic(model=settings.llm.anthropic_model, temperature=0)
+    elif judge == "groq":
+        # Groq (OpenAI-совместимый endpoint). Ключ — GROQ_API_KEY, модель — GROQ_MODEL
+        # (по умолчанию llama-3.3-70b-versatile). Эмбеддинги — локальные HF.
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(
+            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            base_url="https://api.groq.com/openai/v1",
+            api_key=os.getenv("GROQ_API_KEY"),
+            temperature=0,
+        )
         try:
             from langchain_huggingface import HuggingFaceEmbeddings
         except ImportError:
             from langchain_community.embeddings import HuggingFaceEmbeddings
-        emb = HuggingFaceEmbeddings(model_name=settings.vector_store.embedding_model)
+        emb = HuggingFaceEmbeddings(model_name=emb_model)
+    elif judge in ("gemini", "google"):
+        # Google AI Studio (Gemini). Ключ читается из GOOGLE_API_KEY; модель — из
+        # GEMINI_MODEL (по умолчанию gemini-2.0-flash). Эмбеддинги — локальные HF.
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        llm = ChatGoogleGenerativeAI(
+            model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+            temperature=0,
+        )
+        try:
+            from langchain_huggingface import HuggingFaceEmbeddings
+        except ImportError:
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+        emb = HuggingFaceEmbeddings(model_name=emb_model)
+    elif judge == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+        llm = ChatAnthropic(model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"), temperature=0)
+        try:
+            from langchain_huggingface import HuggingFaceEmbeddings
+        except ImportError:
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+        emb = HuggingFaceEmbeddings(model_name=emb_model)
     else:
         # Локальная llama через OpenAI-совместимый эндпоинт llama.cpp
         from langchain_openai import ChatOpenAI
         llm = ChatOpenAI(
             model="local",
-            base_url=f"{settings.llama.server_url}/v1",
+            base_url=f"{os.getenv('LLAMA_SERVER_URL', 'http://llama-server:8080')}/v1",
             api_key="sk-no-key-required",
             temperature=0,
         )
@@ -100,7 +134,7 @@ def build_judge():
             from langchain_huggingface import HuggingFaceEmbeddings
         except ImportError:
             from langchain_community.embeddings import HuggingFaceEmbeddings
-        emb = HuggingFaceEmbeddings(model_name=settings.vector_store.embedding_model)
+        emb = HuggingFaceEmbeddings(model_name=emb_model)
 
     return LangchainLLMWrapper(llm), LangchainEmbeddingsWrapper(emb)
 
@@ -165,13 +199,33 @@ def write_report(result, samples):
     print("\n".join(lines[2:8]))
 
 
-def main():
-    print("1/3 Прогон агентного графа по вопросам…")
+def do_collect():
+    """Фаза 1: прогон графа → eval/samples.json (нужен app, без ragas)."""
+    print("collect: прогон агентного графа по вопросам…")
     samples = asyncio.run(collect_samples())
-    print("2/3 Оценка через Ragas…")
+    SAMPLES_PATH.write_text(json.dumps(samples, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"collect: сохранено {len(samples)} сэмплов → {SAMPLES_PATH}")
+
+
+def do_evaluate():
+    """Фаза 2: eval/samples.json → метрики Ragas → отчёт (нужен ragas, без app)."""
+    if not SAMPLES_PATH.exists():
+        sys.exit(f"Нет {SAMPLES_PATH} — сначала запусти фазу collect.")
+    samples = json.loads(SAMPLES_PATH.read_text(encoding="utf-8"))
+    print(f"evaluate: {len(samples)} сэмплов, судья={os.getenv('RAGAS_JUDGE', 'local')}…")
     result = run_eval(samples)
-    print("3/3 Запись отчёта…")
     write_report(result, samples)
+
+
+def main():
+    # Режимы: collect (app) | evaluate (ragas) | all (оба — нужен env с обеими зависимостями).
+    mode = sys.argv[1] if len(sys.argv) > 1 else "all"
+    if mode not in ("collect", "evaluate", "all"):
+        sys.exit("Использование: run_ragas.py [collect|evaluate|all]")
+    if mode in ("collect", "all"):
+        do_collect()
+    if mode in ("evaluate", "all"):
+        do_evaluate()
 
 
 if __name__ == "__main__":

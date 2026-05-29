@@ -28,7 +28,7 @@ class Document(Base):
 
 
 class DocumentChunk(Base):
-    """Модель чунка документа с векторным представлением."""
+    """Модель чанка документа с векторным представлением."""
     __tablename__ = "document_chunks"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

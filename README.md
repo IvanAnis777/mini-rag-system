@@ -207,6 +207,14 @@ curl -X POST "http://localhost:8000/api/v1/search" \
 
 ## Пошаговый туториал
 
+> **Всё работает в Docker.** Команды `make init-db`, `make load-test-data`, `make test`
+> выполняются **внутри контейнера `api`** (там Python 3.11 и установленные зависимости),
+> поэтому требуют поднятого стека — сначала `make up`. Запускать их на хосте не нужно.
+>
+> ⚠️ Пины в `requirements.txt` рассчитаны на **Python 3.11**: на Python 3.13+ часть
+> пакетов (`numpy==1.24.4` и др.) не собирается. Если хочется работать с хоста — используйте
+> Python 3.11 (`python3.11 -m venv .venv`). Иначе просто работайте через контейнер.
+
 ### Запуск с нуля за 5 минут
 
 #### Шаг 1: Подготовка среды
@@ -570,18 +578,22 @@ python -m pytest tests/test_rag.py -v
 
 ## Разработка
 
-### Локальная разработка
+### Локальная разработка (на хосте)
 
-1. **Установите зависимости**
+> Нужен **Python 3.11** — пины `requirements.txt` не ставятся на 3.13+. Если на хосте
+> другая версия, просто работайте через контейнер (см. ниже), хост-шаги не обязательны.
+
+1. **Установите зависимости** (Python 3.11)
 
 ```bash
+python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
 1. **Запустите зависимости в Docker**
 
 ```bash
-docker-compose up -d postgres redis llama-server
+docker compose up -d postgres redis llama-server
 ```
 
 1. **Создайте таблицы**
@@ -594,6 +606,21 @@ python -c "from app.core.database import create_tables; create_tables()"
 
 ```bash
 python main.py
+```
+
+### Запуск через контейнер (рекомендуется)
+
+Ничего не ставя на хост — всё уже есть в образе `api`:
+
+```bash
+make up                    # поднять стек
+make init-db               # создать таблицы (в контейнере)
+make load-test-data        # загрузить тестовые данные (в контейнере)
+make test                  # прогнать тесты (в контейнере): pytest tests/
+
+# разовые команды напрямую:
+docker compose exec api python -c "from app.core.database import create_tables; create_tables()"
+docker compose exec api python -m pytest tests/ -o asyncio_mode=auto -v
 ```
 
 ### Добавление новых компонентов

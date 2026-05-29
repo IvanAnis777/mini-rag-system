@@ -83,28 +83,32 @@ status: ## Проверить состояние сервисов
 	@echo "$(BLUE)🏥 Health check:$(NC)"
 	-curl -s http://localhost:8000/api/v1/health | jq '.' || echo "API недоступен"
 
-# Создание таблиц БД
-init-db: ## Создать таблицы в базе данных
+# Создание таблиц БД (внутри контейнера api — там зависимости и доступ к postgres)
+init-db: ## Создать таблицы в базе данных (нужен make up)
 	@echo "$(BLUE)📊 Создаём таблицы базы данных...$(NC)"
-	$(PYTHON) -c "from app.core.database import create_tables; create_tables()"
+	$(DOCKER_COMPOSE) exec -T api python -c "from app.core.database import create_tables; create_tables()"
 	@echo "$(GREEN)✅ Таблицы созданы!$(NC)"
 
-# Загрузка тестовых данных
-load-test-data: ## Загрузить тестовые данные
+# Загрузка тестовых данных (внутри контейнера api)
+load-test-data: ## Загрузить тестовые данные (нужен make up)
 	@echo "$(BLUE)📝 Загружаем тестовые данные...$(NC)"
-	$(PYTHON) scripts/load_test_data.py
+	$(DOCKER_COMPOSE) exec -T api python scripts/load_test_data.py
 	@echo "$(GREEN)✅ Тестовые данные загружены!$(NC)"
 
 # Тестирование
-test: ## Запустить тесты
+# Тесты гоняем ВНУТРИ контейнера api: там Python 3.11 + установленные зависимости
+# (на хосте старые пины requirements не ставятся на новый Python). Нужен поднятый стек: make up
+PYTEST = $(DOCKER_COMPOSE) exec -T api python -m pytest -o asyncio_mode=auto
+
+test: ## Запустить тесты (в контейнере api; нужен make up)
 	@echo "$(BLUE)🧪 Запускаем тесты...$(NC)"
-	$(PYTHON) -m pytest tests/ -v --color=yes
+	$(PYTEST) tests/ -v --color=yes
 
 test-api: ## Тестировать только API
-	$(PYTHON) -m pytest tests/test_api.py -v --color=yes
+	$(PYTEST) tests/test_api.py -v --color=yes
 
-test-rag: ## Тестировать RAG pipeline
-	$(PYTHON) -m pytest tests/test_rag.py -v --color=yes
+test-rag: ## Тестировать RAG граф (corrective/self-RAG)
+	$(PYTEST) tests/test_rag_graph.py -v --color=yes
 
 # Линтинг
 lint: ## Проверить код линтером

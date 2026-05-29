@@ -119,7 +119,7 @@ async def load_test_documents():
                     metadata=doc["metadata"]
                 )
                 
-                print(f"   OK - ID: {document_id[:8]}..., чунков: {chunks_created}")
+                print(f"   OK - ID: {document_id[:8]}..., чанков: {chunks_created}")
                 
             except Exception as e:
                 print(f"   ERROR - Ошибка загрузки документа '{doc['title']}': {e}")

@@ -38,7 +38,7 @@ class VectorStoreService:
         if not chunks:
             raise ValueError("Failed to create chunks from document")
         
-        # Создаем эмбеддинги для всех чунков
+        # Создаем эмбеддинги для всех чанков
         embeddings = await self.embedding_service.get_embeddings_batch_async(chunks)
         
         with get_db_session() as session:
@@ -78,7 +78,7 @@ class VectorStoreService:
         limit: Optional[int] = None,
         threshold: Optional[float] = None
     ) -> List[DocumentChunkSchema]:
-        """Поиск похожих чунков по запросу."""
+        """Поиск похожих чанков по запросу."""
         
         limit = limit or self.max_results
         threshold = threshold or self.similarity_threshold
@@ -154,24 +154,24 @@ class VectorStoreService:
             end = start + chunk_size
             
             if end >= len(text):
-                # Последний чунк
+                # Последний чанк
                 chunks.append(text[start:])
                 break
             
             # Попробуем найти удобное место для разрыва (по предложениям или абзацам)
             chunk_text = text[start:end]
             
-            # Ищем последнее предложение в чунке
+            # Ищем последнее предложение в чанке
             for delimiter in ['\n\n', '. ', '! ', '? ', '\n']:
                 last_delimiter = chunk_text.rfind(delimiter)
-                if last_delimiter > chunk_size // 2:  # Не слишком короткий чунк
+                if last_delimiter > chunk_size // 2:  # Не слишком короткий чанк
                     end = start + last_delimiter + len(delimiter)
                     chunk_text = text[start:end]
                     break
             
             chunks.append(chunk_text.strip())
             
-            # Следующий чунк начинается с перекрытием
+            # Следующий чанк начинается с перекрытием
             start = end - chunk_overlap
             
             # Убеждаемся, что не зацикливаемся
@@ -189,7 +189,7 @@ class VectorStoreService:
             return session.query(Document).filter(Document.id == document_id).first()
     
     def get_document_chunks(self, document_id: str) -> List[DocumentChunk]:
-        """Получение всех чунков документа."""
+        """Получение всех чанков документа."""
         with get_db_session() as session:
             return session.query(DocumentChunk)\
                 .filter(DocumentChunk.document_id == document_id)\
@@ -197,7 +197,7 @@ class VectorStoreService:
                 .all()
     
     def delete_document(self, document_id: str) -> bool:
-        """Удаление документа и всех его чунков."""
+        """Удаление документа и всех его чанков."""
         with get_db_session() as session:
             # Удаляем чанки
             deleted_chunks = session.query(DocumentChunk)\
