@@ -1,5 +1,6 @@
 """Сервис для работы с векторным хранилищем на основе PostgreSQL + pgvector."""
 
+import math
 import time
 from typing import List, Tuple, Optional, Dict, Any
 from sqlalchemy.orm import Session
@@ -20,6 +21,7 @@ class VectorStoreService:
         self.embedding_service = get_embedding_service()
         self.similarity_threshold = settings.rag.similarity_threshold
         self.max_results = settings.rag.max_search_results
+        self._fts_index_ready = False  # GIN-индекс полнотекста создаём лениво один раз
     
     async def add_document(
         self,
@@ -78,65 +80,128 @@ class VectorStoreService:
         limit: Optional[int] = None,
         threshold: Optional[float] = None
     ) -> List[DocumentChunkSchema]:
-        """Поиск похожих чанков по запросу."""
-        
+        """Гибридный поиск + reranking.
+
+        1) векторный (pgvector, по смыслу) + ключевой (BM25/полнотекст Postgres,
+           по точным словам) — каждый отдаёт пул кандидатов;
+        2) слияние через RRF (Reciprocal Rank Fusion);
+        3) cross-encoder reranking top-кандидатов;
+        4) возвращаем top-`limit`.
+
+        `threshold` оставлен для совместимости сигнатуры (в гибридном режиме
+        ранжирование делают RRF/reranker, а не косинусный порог).
+        """
         limit = limit or self.max_results
-        threshold = threshold or self.similarity_threshold
-        
+
         start_time = time.time()
-        
-        # Создаем эмбеддинг для запроса
         query_embedding = await self.embedding_service.get_embedding_async(query)
         embedding_time = time.time() - start_time
-        
+
+        cand_k = max(limit * 4, 20)  # пул кандидатов с запасом для слияния/реранка
         search_start = time.time()
-        
         with get_db_session() as session:
-            # Выполняем векторный поиск с использованием косинусного расстояния
-            query_sql = text("""
-                SELECT 
-                    id,
-                    document_id,
-                    content,
-                    chunk_index,
-                    metadata,
-                    created_at,
-                    (1 - (embedding <=> CAST(:query_embedding AS vector))) as similarity_score
-                FROM document_chunks
-                WHERE (1 - (embedding <=> CAST(:query_embedding AS vector))) >= :threshold
-                ORDER BY embedding <=> CAST(:query_embedding AS vector)
-                LIMIT :limit
-            """)
-            
-            results = session.execute(
-                query_sql,
-                {
-                    "query_embedding": str(query_embedding),
-                    "threshold": threshold,
-                    "limit": limit
-                }
-            ).fetchall()
-            
-            search_time = time.time() - search_start
-            
-            # Преобразуем результаты в схемы
-            chunks = []
-            for row in results:
-                chunk = DocumentChunkSchema(
-                    content=row.content,
-                    similarity_score=float(row.similarity_score),
-                    document_id=str(row.document_id),
-                    metadata={
-                        **row.metadata,
-                        "chunk_index": row.chunk_index,
-                        "created_at": row.created_at.isoformat(),
-                        "query_embedding_time": embedding_time,
-                        "search_time": search_time
-                    }
-                )
-                chunks.append(chunk)
-            
-            return chunks
+            self._ensure_fts_index(session)
+            vector_rows = self._vector_search(session, query_embedding, cand_k)
+            keyword_rows = self._keyword_search(session, query, cand_k)
+        search_time = time.time() - search_start
+
+        fused = self._rrf_merge(vector_rows, keyword_rows)
+
+        # cross-encoder reranking (если включён)
+        from app.services.reranker_service import get_reranker_service
+        top = get_reranker_service().rerank(query, fused, top_n=limit)
+
+        chunks = []
+        for item in top:
+            # similarity_score схемы ограничен [0,1]. Логит cross-encoder приводим
+            # сигмоидой; без реранка берём косинусную близость (с клампом).
+            if item.get("rerank_score") is not None:
+                display_score = 1.0 / (1.0 + math.exp(-item["rerank_score"]))
+            else:
+                display_score = max(0.0, min(1.0, item.get("vector_score") or item.get("rrf_score") or 0.0))
+            chunks.append(DocumentChunkSchema(
+                content=item["content"],
+                similarity_score=display_score,
+                document_id=str(item["document_id"]),
+                metadata={
+                    **(item.get("metadata") or {}),
+                    "chunk_index": item.get("chunk_index"),
+                    "vector_score": item.get("vector_score"),
+                    "keyword_rank": item.get("keyword_rank"),
+                    "rrf_score": item.get("rrf_score"),
+                    "rerank_score": item.get("rerank_score"),
+                    "query_embedding_time": embedding_time,
+                    "search_time": search_time,
+                },
+            ))
+        return chunks
+
+    def _ensure_fts_index(self, session):
+        """Один раз создаём GIN-индекс полнотекста (idempotent)."""
+        if self._fts_index_ready:
+            return
+        try:
+            session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_chunks_fts "
+                "ON document_chunks USING GIN (to_tsvector('russian', content))"
+            ))
+            self._fts_index_ready = True
+        except Exception as e:
+            print(f"⚠️ FTS index ensure skipped: {e}")
+
+    def _vector_search(self, session, query_embedding, k):
+        """Векторный поиск (косинусная близость pgvector). Топ-k кандидатов."""
+        sql = text("""
+            SELECT id, document_id, content, chunk_index, metadata,
+                   (1 - (embedding <=> CAST(:qe AS vector))) AS score
+            FROM document_chunks
+            ORDER BY embedding <=> CAST(:qe AS vector)
+            LIMIT :k
+        """)
+        rows = session.execute(sql, {"qe": str(query_embedding), "k": k}).fetchall()
+        return [{
+            "id": str(r.id), "document_id": r.document_id, "content": r.content,
+            "chunk_index": r.chunk_index, "metadata": r.metadata,
+            "vector_score": float(r.score),
+        } for r in rows]
+
+    def _keyword_search(self, session, query, k):
+        """Ключевой поиск (BM25-подобный ts_rank по полнотексту Postgres, рус. словарь)."""
+        sql = text("""
+            SELECT id, document_id, content, chunk_index, metadata,
+                   ts_rank(to_tsvector('russian', content),
+                           plainto_tsquery('russian', :q)) AS rank
+            FROM document_chunks
+            WHERE to_tsvector('russian', content) @@ plainto_tsquery('russian', :q)
+            ORDER BY rank DESC
+            LIMIT :k
+        """)
+        rows = session.execute(sql, {"q": query, "k": k}).fetchall()
+        return [{
+            "id": str(r.id), "document_id": r.document_id, "content": r.content,
+            "chunk_index": r.chunk_index, "metadata": r.metadata,
+            "keyword_rank": float(r.rank),
+        } for r in rows]
+
+    @staticmethod
+    def _rrf_merge(vector_rows, keyword_rows, k0=60):
+        """Reciprocal Rank Fusion: score = Σ 1/(k0 + позиция_в_списке).
+
+        Сливает два ранжированных списка по id чанка, не требуя калибровки шкал
+        (вектор и ts_rank несравнимы напрямую) — учитывает только позиции.
+        """
+        fused = {}
+        for rows in (vector_rows, keyword_rows):
+            for pos, row in enumerate(rows):
+                cid = row["id"]
+                if cid not in fused:
+                    fused[cid] = {**row, "rrf_score": 0.0}
+                else:
+                    for key in ("vector_score", "keyword_rank"):
+                        if key in row:
+                            fused[cid][key] = row[key]
+                fused[cid]["rrf_score"] += 1.0 / (k0 + pos + 1)
+        return sorted(fused.values(), key=lambda x: x["rrf_score"], reverse=True)
     
     def _split_text(self, text: str) -> List[str]:
         """Разбиение текста на чанки."""

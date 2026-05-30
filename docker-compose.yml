@@ -57,6 +57,9 @@ services:
       VECTOR_STORE_TYPE: pgvector
       # MiniLM-L6-v2 на русском даёт невысокие косинусные скоры → снижаем порог
       SIMILARITY_THRESHOLD: "0.3"
+      # Cross-encoder reranker поверх гибридного поиска (вектор + BM25)
+      RERANKER_ENABLED: ${RERANKER_ENABLED:-true}
+      RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
       # Провайдер LLM для агентного графа: llama | anthropic | openai
       LLM_BACKEND: ${LLM_BACKEND:-llama}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
