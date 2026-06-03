@@ -304,7 +304,7 @@ const NODES = {
     file: 'rag_graph.py · async def web_search',
     edges: [{to:'generate', cond:false, label:'всегда'}] },
   generate: { kind: 'рабочий', c: '#4ade80',
-    desc: 'Генерирует ответ строго по контексту (отфильтрованным документам). Если контекст пуст — честно говорит «информации недостаточно». Счётчик generations += 1.',
+    desc: 'Генерирует ответ строго по контексту (отфильтрованным документам). Если контекст пуст — честно говорит «информации недостаточно». Защита от prompt injection: контекст обёрнут маркерами и помечен как данные, а не инструкции — команды внутри документов не исполняются. Счётчик generations += 1.',
     reads: 'question · documents', writes: 'generation · generations',
     file: 'rag_graph.py · async def generate',
     edges: [{to:'grade_generation', cond:false, label:'всегда'}] },
