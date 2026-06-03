@@ -20,8 +20,10 @@
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
+from typing import Optional
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -33,6 +35,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 QA_PATH = Path(__file__).parent / "pharma_qa.jsonl"
 SAMPLES_PATH = Path(__file__).parent / "samples.json"
 REPORT_PATH = Path(__file__).parent / "report.md"
+CORPUS_DIR = Path(__file__).parent / "corpus"
 
 
 def load_qa():
@@ -42,6 +45,109 @@ def load_qa():
         if line:
             rows.append(json.loads(line))
     return rows
+
+
+# ---------- retrieval-метрики (precision@k / recall@k) ----------
+# Считаются БЕЗ LLM-судьи: чисто по тому, из «правильного» ли документа пришёл каждый
+# найденный чанк. Поэтому их можно гонять офлайн, без ragas и без API-ключей.
+
+def _normalize(text: str) -> str:
+    """Схлопывает пробелы и приводит к нижнему регистру для устойчивого сравнения."""
+    return re.sub(r"\s+", " ", text or "").strip().lower()
+
+
+def _load_corpus() -> dict:
+    """{имя_документа: нормализованный_текст} по файлам eval/corpus/*.md."""
+    return {f.stem: _normalize(f.read_text(encoding="utf-8")) for f in CORPUS_DIR.glob("*.md")}
+
+
+def _chunk_source(chunk: str, corpus: dict) -> Optional[str]:
+    """Из какого документа корпуса пришёл чанк. Чанк — подстрока ровно одного файла
+    (так нарезали при ингесте), поэтому ищем включением. None — если ни в один не попал
+    (например, плейсхолдер «(контекст не найден)»)."""
+    c = _normalize(chunk)
+    if not c:
+        return None
+    matches = [name for name, full in corpus.items() if c in full]
+    return matches[0] if len(matches) == 1 else None
+
+
+def compute_retrieval_metrics(samples) -> dict:
+    """precision@k и recall (hit-rate) ретривера по gold-документу каждого вопроса.
+
+    Для каждого вопроса известен gold-документ (`source`). Среди найденных чанков
+    релевантными считаем те, что пришли из gold-документа:
+      - precision@k = релевантных_чанков / всего_найденных_чанков (k = размер контекста);
+      - recall (hit-rate) = попал ли gold-документ в контекст вообще (1/0), усреднённо.
+    Gold берём из самих samples, а если его там нет (старый сбор) — по вопросу из pharma_qa.
+    """
+    corpus = _load_corpus()
+    qa_source = {row["question"]: row.get("source") for row in load_qa()}
+
+    per_question = []
+    for i, s in enumerate(samples):
+        gold = s.get("source") or qa_source.get(s["user_input"])
+        chunks = s.get("retrieved_contexts", []) or []
+        sources = [_chunk_source(c, corpus) for c in chunks]
+        relevant = sum(1 for src in sources if src == gold)
+        k = len(chunks)
+        precision = relevant / k if k else 0.0
+        hit = 1.0 if relevant > 0 else 0.0
+        per_question.append({
+            "idx": i, "gold": gold, "k": k,
+            "relevant": relevant, "precision": precision, "hit": hit,
+        })
+
+    n = len(per_question) or 1
+    return {
+        "precision_at_k": sum(q["precision"] for q in per_question) / n,
+        "recall_hit_rate": sum(q["hit"] for q in per_question) / n,
+        "per_question": per_question,
+    }
+
+
+def format_retrieval_section(rm: dict) -> list:
+    """Markdown-секция retrieval-метрик для отчёта."""
+    lines = ["## Retrieval-метрики (без судьи)", ""]
+    lines.append(f"- **precision@k** (доля релевантных среди найденных чанков): **{rm['precision_at_k']:.3f}**")
+    lines.append(f"- **recall@k / hit-rate** (gold-документ попал в контекст): **{rm['recall_hit_rate']:.3f}**")
+    lines.append("")
+    lines.append("| # | gold-документ | чанков (k) | релевантных | precision@k | hit |")
+    lines.append("|---|---|---|---|---|---|")
+    for q in rm["per_question"]:
+        lines.append(
+            f"| {q['idx']} | {q['gold']} | {q['k']} | {q['relevant']} | "
+            f"{q['precision']:.2f} | {int(q['hit'])} |"
+        )
+    lines.append("")
+    return lines
+
+
+def log_to_mlflow(params: dict, metrics: dict, experiment: str = "mini-rag-ragas") -> None:
+    """Логирует параметры прогона и метрики в ЛОКАЛЬНЫЙ MLflow (eval/mlruns) — закрывает
+    гэп «experiment tracking». Сервер поднимать не нужно (file-store); посмотреть прогоны:
+    `mlflow ui --backend-store-uri eval/mlruns`.
+
+    Мягкая зависимость: если mlflow не установлен — просто пропускаем, не ломая прогон.
+    nan-метрики (судья не досчитал) отбрасываем, чтобы не засорять трекер.
+    """
+    try:
+        # mlflow 3.x держит простой file-store в «maintenance mode» — для локального
+        # учебного трекинга он нам подходит, явно разрешаем (можно переопределить из env).
+        os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
+        import mlflow
+    except ImportError:
+        print("mlflow не установлен — трекинг пропущен (pip install -r requirements-eval.txt).")
+        return
+    mlflow.set_tracking_uri((Path(__file__).parent / "mlruns").resolve().as_uri())
+    mlflow.set_experiment(experiment)
+    clean = {k: float(v) for k, v in metrics.items() if isinstance(v, (int, float)) and v == v}
+    with mlflow.start_run():
+        mlflow.log_params(params)
+        mlflow.log_metrics(clean)
+        if REPORT_PATH.exists():
+            mlflow.log_artifact(str(REPORT_PATH))
+    print(f"mlflow: {len(clean)} метрик → эксперимент '{experiment}' (смотреть: mlflow ui --backend-store-uri eval/mlruns)")
 
 
 async def collect_samples():
@@ -61,6 +167,7 @@ async def collect_samples():
                 "response": result.get("generation", ""),
                 "retrieved_contexts": contexts or ["(контекст не найден)"],
                 "reference": row["ground_truth"],
+                "source": row.get("source"),  # gold-документ для retrieval-метрик
                 "transforms": result.get("transforms", 0),
                 "grounded": result.get("grounded", False),
             }
@@ -184,13 +291,16 @@ def write_report(result, samples):
     lines = ["# Ragas-отчёт: агентный RAG (фарма-корпус)", ""]
     lines.append(f"Вопросов: {len(samples)} · судья: `{os.getenv('RAGAS_JUDGE', 'local')}`")
     lines.append("")
-    lines.append("## Средние метрики")
+    lines.append("## Средние метрики (LLM-судья)")
     lines.append("")
     lines.append("| Метрика | Среднее |")
     lines.append("|---|---|")
     for col in metric_cols:
         lines.append(f"| {col} | {df[col].mean():.3f} |")
     lines.append("")
+    # retrieval-метрики считаем тут же — они не зависят от судьи
+    rm = compute_retrieval_metrics(samples)
+    lines += format_retrieval_section(rm)
     lines.append("## По вопросам")
     lines.append("")
     header = "| Вопрос | " + " | ".join(metric_cols) + " | transforms |"
@@ -204,6 +314,12 @@ def write_report(result, samples):
     REPORT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"\nОтчёт записан: {REPORT_PATH}")
     print("\n".join(lines[2:8]))
+
+    # метрики для трекинга: средние по судье + retrieval
+    metrics = {col: float(df[col].mean()) for col in metric_cols}
+    metrics["precision_at_k"] = rm["precision_at_k"]
+    metrics["recall_hit_rate"] = rm["recall_hit_rate"]
+    return metrics
 
 
 def do_collect():
@@ -219,16 +335,43 @@ def do_evaluate():
     if not SAMPLES_PATH.exists():
         sys.exit(f"Нет {SAMPLES_PATH} — сначала запусти фазу collect.")
     samples = json.loads(SAMPLES_PATH.read_text(encoding="utf-8"))
-    print(f"evaluate: {len(samples)} сэмплов, судья={os.getenv('RAGAS_JUDGE', 'local')}…")
+    judge = os.getenv("RAGAS_JUDGE", os.getenv("LLM_BACKEND", "local"))
+    print(f"evaluate: {len(samples)} сэмплов, судья={judge}…")
     result = run_eval(samples)
-    write_report(result, samples)
+    metrics = write_report(result, samples)
+    log_to_mlflow(
+        {"phase": "evaluate", "judge": judge, "n_questions": len(samples)},
+        metrics,
+    )
+
+
+def do_retrieval():
+    """Только retrieval-метрики (precision@k / recall@k) по готовым samples.json.
+
+    Не требует ни ragas, ни LLM-судьи, ни API-ключей — чистый stdlib. Удобно гонять
+    после каждого collect, чтобы быстро увидеть качество поиска без затрат на судью.
+    """
+    if not SAMPLES_PATH.exists():
+        sys.exit(f"Нет {SAMPLES_PATH} — сначала запусти фазу collect.")
+    samples = json.loads(SAMPLES_PATH.read_text(encoding="utf-8"))
+    rm = compute_retrieval_metrics(samples)
+    print("\n".join(format_retrieval_section(rm)))
+    log_to_mlflow(
+        {"phase": "retrieval", "n_questions": len(samples),
+         "backend": os.getenv("LLM_BACKEND", "llama")},
+        {"precision_at_k": rm["precision_at_k"], "recall_hit_rate": rm["recall_hit_rate"]},
+    )
+    return rm
 
 
 def main():
-    # Режимы: collect (app) | evaluate (ragas) | all (оба — нужен env с обеими зависимостями).
+    # Режимы: collect (app) | evaluate (ragas+судья) | retrieval (только поиск, без судьи) | all.
     mode = sys.argv[1] if len(sys.argv) > 1 else "all"
-    if mode not in ("collect", "evaluate", "all"):
-        sys.exit("Использование: run_ragas.py [collect|evaluate|all]")
+    if mode not in ("collect", "evaluate", "retrieval", "all"):
+        sys.exit("Использование: run_ragas.py [collect|evaluate|retrieval|all]")
+    if mode == "retrieval":
+        do_retrieval()
+        return
     if mode in ("collect", "all"):
         do_collect()
     if mode in ("evaluate", "all"):

@@ -128,6 +128,7 @@ ENV/
 env.bak/
 venv.bak/
 .venv-graph/
+.venv-eval/
 
 # Generated eval reports
 eval/report.md
@@ -223,4 +224,8 @@ test-results/
 
 # Documentation builds
 docs/_build/
-site/ 
+site/
+
+# MLflow local experiment tracking (eval/run_ragas.py)
+mlruns/
+eval/mlruns/ 

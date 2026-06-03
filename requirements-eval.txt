@@ -1,9 +1,17 @@
 # Зависимости для оценки качества (eval/run_ragas.py).
-# Ставятся поверх requirements.txt:  pip install -r requirements-eval.txt
-ragas>=0.2.0
-langchain-openai>=0.2.0
-langchain-anthropic>=0.2.0
-langchain-google-genai>=2.0.0
-langchain-huggingface>=0.1.0
+# Ставятся в ИЗОЛИРОВАННЫЙ venv — несовместимы с langchain приложения (ragas тянет
+# langchain-core<1, приложение — >=1.4). Поэтому:
+#   python -m venv .venv-eval && .venv-eval/bin/pip install -r requirements-eval.txt
+# Версии закреплены под рабочий набор (ragas 0.2.x API, как в коде run_ragas.py).
+ragas==0.2.15
+langchain-openai<0.3        # судья groq/openai/local (OpenAI-совместимый клиент)
+langchain-huggingface<0.2   # локальные эмбеддинги для answer_relevancy
+langchain-community<0.4
 datasets>=2.0.0
 pandas>=2.0.0
+mlflow>=2.0.0               # локальный experiment tracking (eval/mlruns)
+
+# Судьи anthropic/gemini — опционально, доустановить отдельно (могут конфликтовать
+# по langchain-core с набором выше):
+#   langchain-anthropic<0.3
+#   langchain-google-genai
