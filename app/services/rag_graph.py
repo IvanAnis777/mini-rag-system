@@ -27,6 +27,8 @@ from langgraph.graph import END, START, StateGraph
 RetrieverFn = Callable[[str, int], Awaitable[List[dict]]]
 # Тип LLM: (prompt, system_prompt) -> текст ответа
 LLMFn = Callable[[str, Optional[str]], Awaitable[str]]
+# Тип внешнего поиска (CRAG-fallback): (query) -> документы того же формата, что у ретривера
+WebSearchFn = Callable[[str], Awaitable[List[dict]]]
 
 
 class AgentState(TypedDict, total=False):
@@ -58,6 +60,7 @@ class CorrectiveRagGraph:
         retriever: RetrieverFn,
         llm: LLMFn,
         *,
+        web_search: Optional[WebSearchFn] = None,
         max_chunks: int = 5,
         max_transforms: int = 2,
         max_generations: int = 2,
@@ -65,6 +68,8 @@ class CorrectiveRagGraph:
     ):
         self.retriever = retriever
         self.llm = llm
+        # колбэк храним под _web_search, чтобы не затереть одноимённый метод-узел web_search
+        self._web_search = web_search
         self.max_chunks = max_chunks
         self.max_transforms = max_transforms
         self.max_generations = max_generations
@@ -77,6 +82,17 @@ class CorrectiveRagGraph:
         docs = await self.retriever(query, self.max_chunks)
         trace = state.get("trace", []) + [f"retrieve(query={query!r}) → {len(docs)} док."]
         return {"documents": docs, "query": query, "trace": trace}
+
+    async def web_search(self, state: AgentState) -> AgentState:
+        """CRAG-fallback: локальный поиск ничего релевантного не дал — ищем во внешнем источнике.
+
+        Найденные документы НЕ грейдим повторно и идём прямо в generate: грейдинг тут
+        мог бы снова всё отсеять и вернуть нас в этот же узел — получилась бы петля.
+        """
+        question = state["question"]
+        docs = await self._web_search(question)
+        trace = state.get("trace", []) + [f"web_search(query={question!r}) → {len(docs)} док."]
+        return {"documents": docs, "trace": trace}
 
     async def grade_documents(self, state: AgentState) -> AgentState:
         """LLM-грейдинг релевантности каждого документа вопросу. Отсев нерелевантных."""
@@ -141,10 +157,13 @@ class CorrectiveRagGraph:
     def _decide_after_grade(self, state: AgentState) -> str:
         if state.get("documents"):
             return "generate"
-        # нет релевантных документов — пробуем переформулировать, пока есть бюджет
+        # нет релевантных документов — переформулируем, пока есть лимит попыток
         if state.get("transforms", 0) < self.max_transforms:
             return "transform_query"
-        return "generate"  # бюджет исчерпан — честно генерируем "не нашёл" по пустому контексту
+        # лимит попыток переформулировки исчерпан — последний шанс через внешний поиск (CRAG)
+        if self._web_search is not None:
+            return "web_search"
+        return "generate"  # внешнего поиска нет — честно генерируем "не нашёл" по пустому контексту
 
     def _decide_after_generation(self, state: AgentState) -> str:
         if not state.get("grounded"):
@@ -167,13 +186,16 @@ class CorrectiveRagGraph:
         g.add_node("generate", self.generate)
         g.add_node("grade_generation", self.grade_generation)
 
+        # маршруты после грейдинга документов; ветка web_search активна только при наличии колбэка
+        after_grade = {"generate": "generate", "transform_query": "transform_query"}
+        if self._web_search is not None:
+            g.add_node("web_search", self.web_search)
+            g.add_edge("web_search", "generate")
+            after_grade["web_search"] = "web_search"
+
         g.add_edge(START, "retrieve")
         g.add_edge("retrieve", "grade_documents")
-        g.add_conditional_edges(
-            "grade_documents",
-            self._decide_after_grade,
-            {"generate": "generate", "transform_query": "transform_query"},
-        )
+        g.add_conditional_edges("grade_documents", self._decide_after_grade, after_grade)
         g.add_edge("transform_query", "retrieve")
         g.add_edge("generate", "grade_generation")
         g.add_conditional_edges(

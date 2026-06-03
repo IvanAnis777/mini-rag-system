@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Corrective RAG · LangGraph — архитектура</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e14; --bg2: #0d1219; --panel: #11161f; --panel2: #161d28; --panel3: #1b2330;
+    --border: #232c3b; --border2: #2d3848;
+    --text: #eef2f7; --text2: #c4cdd9; --muted: #8693a5; --faint: #5a6678;
+    --violet: #a78bfa; --violet2: #8b6df0; --indigo: #6366f1;
+    --green: #4ade80; --amber: #fbbf24; --red: #f87171; --blue: #60a5fa; --cyan: #38bdf8;
+    --sans: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    --shadow: 0 8px 30px rgba(0,0,0,.35); --shadow-sm: 0 2px 12px rgba(0,0,0,.25);
+    --glow: 0 0 0 1px rgba(167,139,250,.25), 0 8px 28px rgba(124,109,240,.18);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(99,102,241,.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 20%, rgba(167,139,250,.08), transparent 55%),
+      var(--bg);
+    color: var(--text); font-family: var(--sans); line-height: 1.6;
+    -webkit-font-smoothing: antialiased; letter-spacing: -.01em;
+  }
+  ::selection { background: rgba(167,139,250,.3); }
+  code, .mono { font-family: var(--mono); }
+
+  /* ---------- Hero ---------- */
+  header {
+    position: relative; padding: 40px 40px 30px; overflow: hidden;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(124,109,240,.06), transparent);
+  }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--violet);
+    background: rgba(167,139,250,.10); border: 1px solid rgba(167,139,250,.25);
+    padding: 5px 12px; border-radius: 999px; margin-bottom: 16px; }
+  .eyebrow .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--violet);
+    box-shadow: 0 0 0 0 rgba(167,139,250,.6); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(167,139,250,.5)} 70%{box-shadow:0 0 0 7px rgba(167,139,250,0)} 100%{box-shadow:0 0 0 0 rgba(167,139,250,0)} }
+  header h1 { margin: 0 0 10px; font-size: 32px; font-weight: 800; letter-spacing: -.025em;
+    background: linear-gradient(135deg, #fff 30%, #b9a8ff); -webkit-background-clip: text;
+    background-clip: text; -webkit-text-fill-color: transparent; }
+  header p { margin: 0; color: var(--muted); font-size: 15px; max-width: 720px; }
+  .stats { display: flex; gap: 28px; margin-top: 24px; flex-wrap: wrap; }
+  .stat { display: flex; flex-direction: column; }
+  .stat .num { font-size: 24px; font-weight: 700; font-family: var(--mono); letter-spacing: -.03em; }
+  .stat .lbl { font-size: 12px; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; }
+  .stat .num.v { color: var(--violet); } .stat .num.g { color: var(--green); } .stat .num.a { color: var(--amber); }
+
+  /* ---------- Layout ---------- */
+  .layout { display: grid; grid-template-columns: 1.4fr 1fr; gap: 0; align-items: start; }
+  @media (max-width: 1020px) { .layout { grid-template-columns: 1fr; } }
+  .left { padding: 32px 36px; border-right: 1px solid var(--border); min-width: 0; }
+  .right { padding: 32px 36px; position: sticky; top: 0; }
+  @media (max-width: 1020px) { .right { position: static; border-top: 1px solid var(--border); } }
+
+  .section-head { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; }
+  .section-head h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--muted); margin: 0; font-weight: 700; }
+  .section-head .line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
+  section { margin-bottom: 32px; }
+
+  .hint { font-size: 13.5px; color: var(--muted); margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
+  .hint kbd { font-family: var(--mono); font-size: 11px; background: var(--panel3); border: 1px solid var(--border2);
+    border-bottom-width: 2px; border-radius: 5px; padding: 2px 7px; color: var(--violet); }
+
+  /* ---------- Diagram ---------- */
+  .diagram-wrap { background:
+      linear-gradient(180deg, var(--panel), var(--bg2));
+    border: 1px solid var(--border); border-radius: 16px; padding: 12px; box-shadow: var(--shadow);
+    position: relative; }
+  .diagram-wrap::before { content: ''; position: absolute; inset: 0; border-radius: 16px;
+    background: radial-gradient(400px 200px at 70% 0%, rgba(124,109,240,.07), transparent); pointer-events: none; }
+  .mermaid { display: flex; justify-content: center; max-height: 68vh; padding-bottom: 10px; }
+  .mermaid svg { max-width: 100% !important; max-height: 68vh; height: auto !important; width: auto !important; }
+  .mermaid .node { cursor: pointer; transition: opacity .25s ease, filter .2s ease; }
+  .mermaid .node:hover { filter: brightness(1.22); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 18px; }
+  .legend .chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text2);
+    background: var(--panel2); border: 1px solid var(--border); padding: 6px 11px; border-radius: 8px; }
+  .legend .swatch { width: 22px; height: 0; border-top: 2.5px solid var(--muted); }
+  .legend .swatch.solid { border-color: var(--blue); }
+  .legend .swatch.dashed { border-top-style: dashed; border-color: var(--violet); }
+  .legend .dot { width: 11px; height: 11px; border-radius: 3px; }
+
+  /* ---------- Cards ---------- */
+  .card { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--border);
+    border-radius: 14px; padding: 22px; box-shadow: var(--shadow-sm); transition: box-shadow .3s, border-color .3s; }
+  .card.glow { border-color: rgba(167,139,250,.4); box-shadow: var(--glow); }
+
+  #node-card .placeholder { text-align: center; padding: 18px 8px; color: var(--muted); }
+  #node-card .placeholder .big { font-size: 34px; margin-bottom: 8px; opacity: .8; }
+  .node-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+  .node-title { font-size: 22px; font-weight: 700; font-family: var(--mono); letter-spacing: -.02em; }
+  .node-kind { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+    text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+  .node-desc { color: var(--text2); margin: 14px 0 16px; font-size: 14.5px; }
+  .io { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  @media (max-width: 480px) { .io { grid-template-columns: 1fr; } }
+  .io .box { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .io .box .t { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); margin-bottom: 6px; }
+  .io .box code { font-size: 12px; color: var(--cyan); display: block; line-height: 1.7; }
+  .io .box.in .t { color: var(--blue); } .io .box.out .t { color: var(--green); }
+  .edges-out .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); margin-bottom: 8px; }
+  .edge { display: flex; align-items: baseline; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .edge .arr { color: var(--violet); font-family: var(--mono); }
+  .edge code { font-size: 12.5px; color: var(--text); background: var(--panel3); border: 1px solid var(--border);
+    border-radius: 5px; padding: 1px 7px; }
+  .edge .cond { color: var(--amber); } .edge .uncond { color: var(--muted); }
+  .file-ref { display: flex; align-items: center; gap: 7px; margin-top: 16px; padding-top: 14px;
+    border-top: 1px solid var(--border); font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+
+  /* ---------- State table ---------- */
+  .state-row { display: grid; grid-template-columns: 150px 1fr; gap: 14px; padding: 10px 0;
+    border-bottom: 1px solid var(--border); font-size: 13px; align-items: baseline; }
+  .state-row:last-child { border-bottom: 0; }
+  .state-row code { font-family: var(--mono); color: var(--violet); font-size: 12.5px; }
+  .state-row .d { color: var(--muted); }
+
+  .kv2 { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; font-size: 13.5px; }
+  .kv2 .k code { font-family: var(--mono); font-size: 12px; background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 5px; padding: 2px 8px; color: var(--cyan); }
+  .note { font-size: 12.5px; color: var(--faint); margin: 14px 0 0; padding-left: 12px; border-left: 2px solid var(--border2); }
+
+  /* ---------- Scenarios ---------- */
+  .tabs { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+  .tab { font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--muted); cursor: pointer; transition: all .2s; display: flex; align-items: center; gap: 6px; }
+  .tab:hover { color: var(--text2); border-color: var(--border2); }
+  .tab.active { color: #fff; border-color: rgba(167,139,250,.5); background: linear-gradient(135deg, #2a2150, #1f1b3a);
+    box-shadow: 0 2px 12px rgba(124,109,240,.2); }
+  .tab .em { font-size: 13px; }
+  .trace-card { background: linear-gradient(180deg, var(--bg2), var(--panel)); border: 1px solid var(--border);
+    border-radius: 14px; padding: 6px; box-shadow: var(--shadow-sm); }
+  .trace-head { display: flex; align-items: center; gap: 7px; padding: 10px 14px 8px; }
+  .trace-head .dots { display: flex; gap: 6px; }
+  .trace-head .dots i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .trace-head .fn { font-family: var(--mono); font-size: 11.5px; color: var(--faint); margin-left: 6px; }
+  .trace { font-family: var(--mono); font-size: 12.5px; padding: 6px 16px 16px; white-space: pre-wrap; color: var(--text2); }
+  .trace .ln { display: block; padding: 2.5px 0; animation: fadein .35s ease both; }
+  .trace .arrow { color: var(--violet); }
+  @keyframes fadein { from{opacity:0;transform:translateX(-4px)} to{opacity:1;transform:none} }
+  .scenario-desc { font-size: 13px; color: var(--muted); margin: 14px 2px 0; }
+
+  footer { padding: 24px 40px 40px; color: var(--faint); font-size: 12.5px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+  footer code { font-family: var(--mono); color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="eyebrow"><span class="pulse"></span> Self-RAG · Corrective RAG · LangGraph</div>
+  <h1>Архитектура агентного RAG</h1>
+  <p>Обычный RAG (<code style="font-family:var(--mono);font-size:13px;color:var(--cyan)">retrieve → generate</code>) расширен графом с самокоррекцией: грейдинг документов, проверка на галлюцинации и попадание в вопрос, петли переформулировки и веб-поиск как спасательный круг.</p>
+  <div class="stats">
+    <div class="stat"><span class="num">6</span><span class="lbl">узлов</span></div>
+    <div class="stat"><span class="num v">2</span><span class="lbl">условных ребра</span></div>
+    <div class="stat"><span class="num a">2</span><span class="lbl">LLM-грейдера</span></div>
+    <div class="stat"><span class="num g">5</span><span class="lbl">тестов · все green</span></div>
+    <div class="stat"><span class="num">9</span><span class="lbl">полей состояния</span></div>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="left">
+    <div class="hint">Нажми на узел диаграммы <kbd>click</kbd> — справа раскроется его разбор.</div>
+
+    <div class="diagram-wrap">
+      <pre class="mermaid">
+flowchart TD
+  START([ START ]):::startEnd
+  retrieve("retrieve"):::work
+  grade_documents("grade_documents"):::grader
+  transform_query("transform_query"):::work
+  web_search("web_search<br/><span style='font-size:10px;opacity:.7'>опционально · CRAG</span>"):::optional
+  generate("generate"):::work
+  grade_generation("grade_generation"):::grader
+  STOP([ END ]):::startEnd
+
+  START ==> retrieve
+  retrieve ==> grade_documents
+  grade_documents -.->|есть релевантные| generate
+  grade_documents -.->|нет · лимит не исчерпан| transform_query
+  grade_documents -.->|лимит исчерпан · есть web| web_search
+  transform_query ==> retrieve
+  web_search ==> generate
+  generate ==> grade_generation
+  grade_generation -.->|галлюцинация| generate
+  grade_generation -.->|мимо вопроса| transform_query
+  grade_generation -.->|ок| STOP
+
+  click retrieve nodeClick
+  click grade_documents nodeClick
+  click transform_query nodeClick
+  click web_search nodeClick
+  click generate nodeClick
+  click grade_generation nodeClick
+
+  classDef startEnd fill:#161d28,stroke:#8b6df0,stroke-width:2px,color:#eef2f7,font-weight:600;
+  classDef work fill:#0f2018,stroke:#4ade80,stroke-width:1.5px,color:#eef2f7;
+  classDef grader fill:#241d0a,stroke:#fbbf24,stroke-width:1.5px,color:#eef2f7;
+  classDef optional fill:#221338,stroke:#a78bfa,stroke-width:1.5px,stroke-dasharray:5 3,color:#eef2f7;
+  linkStyle default stroke:#3a4556,stroke-width:1.5px;
+      </pre>
+    </div>
+
+    <div class="legend">
+      <span class="chip"><span class="swatch solid"></span> безусловное ребро</span>
+      <span class="chip"><span class="swatch dashed"></span> условное (роутер)</span>
+      <span class="chip"><span class="dot" style="background:#4ade80"></span> рабочий узел</span>
+      <span class="chip"><span class="dot" style="background:#fbbf24"></span> грейдер (LLM)</span>
+      <span class="chip"><span class="dot" style="background:#a78bfa"></span> опциональный · CRAG</span>
+    </div>
+
+    <section style="margin-top:34px">
+      <div class="section-head"><h2>Сценарии выполнения</h2><span class="line"></span></div>
+      <div class="tabs" id="tabs"></div>
+      <div class="trace-card">
+        <div class="trace-head">
+          <span class="dots"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#4ade80"></i></span>
+          <span class="fn" id="trace-fn">graph.ainvoke()</span>
+        </div>
+        <div class="trace" id="trace"></div>
+      </div>
+      <p class="scenario-desc" id="scenario-desc"></p>
+    </section>
+  </div>
+
+  <div class="right">
+    <section>
+      <div class="section-head"><h2>Разбор узла</h2><span class="line"></span></div>
+      <div class="card" id="node-card">
+        <div class="placeholder"><div class="big">⟵</div>Кликни узел на схеме, чтобы увидеть, что он делает, что пишет в состояние и куда ведут его рёбра.</div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2>AgentState — данные графа</h2><span class="line"></span></div>
+      <div class="card" id="state-card"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2>Лимиты попыток · защита от петель</h2><span class="line"></span></div>
+      <div class="card">
+        <div class="kv2">
+          <span class="k"><code>max_transforms</code></span><span>сколько раз переформулировать запрос · <b>2</b></span>
+          <span class="k"><code>max_generations</code></span><span>сколько раз перегенерировать ответ · <b>2</b></span>
+          <span class="k"><code>max_chunks</code></span><span>документов из поиска · <b>5</b></span>
+        </div>
+        <p class="note">Без лимитов self-RAG может зациклиться: «нет ответа → переформулируй → нет ответа → …». Счётчики гарантируют завершение графа.</p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<footer>
+  <span>📄 <code>app/services/rag_graph.py</code> · тесты <code>tests/test_rag_graph.py</code></span>
+  <span>Паттерн: <code>Self-RAG / CRAG</code> (LangChain) на LangGraph <code>StateGraph</code></span>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+mermaid.initialize({ startOnLoad: true, securityLevel: 'loose', theme: 'base',
+  themeVariables: {
+    fontSize: '15px', fontFamily: "'Inter', sans-serif",
+    primaryColor: '#161d28', primaryTextColor: '#eef2f7', lineColor: '#3a4556',
+    edgeLabelBackground: '#11161f', tertiaryColor: '#11161f'
+  },
+  flowchart: { curve: 'basis', padding: 12, nodeSpacing: 38, rankSpacing: 40, useMaxWidth: false }
+});
+
+const NODES = {
+  retrieve: { kind: 'рабочий', c: '#4ade80',
+    desc: 'Берёт текущий запрос (переформулированный или исходный вопрос) и зовёт инъектируемый retriever — в проде это векторный поиск по PostgreSQL.',
+    reads: 'query · max_chunks', writes: 'documents · query',
+    file: 'rag_graph.py · async def retrieve',
+    edges: [{to:'grade_documents', cond:false, label:'всегда'}] },
+  grade_documents: { kind: 'грейдер · LLM', c: '#fbbf24',
+    desc: 'LLM-оценщик: по каждому документу спрашивает «релевантен вопросу? yes/no» и выкидывает нерелевантные. Это «C» в CRAG — corrective.',
+    reads: 'question · documents', writes: 'documents (отфильтр.)',
+    file: 'rag_graph.py · async def grade_documents',
+    edges: [
+      {to:'generate', cond:true, label:'есть релевантные документы'},
+      {to:'transform_query', cond:true, label:'пусто · лимит попыток не исчерпан'},
+      {to:'web_search', cond:true, label:'пусто · лимит исчерпан · web подключён'},
+      {to:'generate', cond:true, label:'пусто · лимит исчерпан · web нет → честный «не нашёл»'} ] },
+  transform_query: { kind: 'рабочий', c: '#4ade80',
+    desc: 'Просит LLM переписать запрос лучше для семантического поиска: выделить сущности, убрать лишнее. Счётчик transforms += 1.',
+    reads: 'question · query', writes: 'query (новый) · transforms',
+    file: 'rag_graph.py · async def transform_query',
+    edges: [{to:'retrieve', cond:false, label:'всегда · повторный поиск'}] },
+  web_search: { kind: 'опционально · CRAG', c: '#a78bfa',
+    desc: 'Спасательный круг: локальный корпус пуст и лимит попыток переформулировки исчерпан → идём во внешний поиск. Узел существует, только если передан колбэк web_search. Найденное не грейдим повторно (иначе петля) — сразу в generate.',
+    reads: 'question', writes: 'documents (из веба)',
+    file: 'rag_graph.py · async def web_search',
+    edges: [{to:'generate', cond:false, label:'всегда'}] },
+  generate: { kind: 'рабочий', c: '#4ade80',
+    desc: 'Генерирует ответ строго по контексту (отфильтрованным документам). Если контекст пуст — честно говорит «информации недостаточно». Счётчик generations += 1.',
+    reads: 'question · documents', writes: 'generation · generations',
+    file: 'rag_graph.py · async def generate',
+    edges: [{to:'grade_generation', cond:false, label:'всегда'}] },
+  grade_generation: { kind: 'грейдер · LLM', c: '#fbbf24',
+    desc: 'Двойная проверка ответа: (1) grounded — обоснован ли контекстом, без галлюцинаций; (2) answers_question — отвечает ли по сути на вопрос. Это «self» в Self-RAG.',
+    reads: 'question · documents · generation', writes: 'grounded · answers_question',
+    file: 'rag_graph.py · async def grade_generation',
+    edges: [
+      {to:'generate', cond:true, label:'галлюцинация · лимит генераций не исчерпан'},
+      {to:'transform_query', cond:true, label:'обоснован, но мимо · лимит попыток не исчерпан'},
+      {to:'END', cond:true, label:'обоснован и отвечает (или лимит исчерпан)'} ] }
+};
+
+const STATE = [
+  ['question','исходный вопрос пользователя · не меняется'],
+  ['query','текущий поисковый запрос · его переписывает transform_query'],
+  ['documents','отфильтрованные релевантные документы'],
+  ['generation','текущий сгенерированный ответ'],
+  ['transforms','счётчик переформулировок · лимит попыток'],
+  ['generations','счётчик генераций · лимит попыток'],
+  ['grounded','ответ обоснован контекстом · не галлюцинация'],
+  ['answers_question','ответ реально отвечает на вопрос'],
+  ['trace','лог шагов для отладки и демо']
+];
+
+const SCENARIOS = {
+  'Happy path': { em:'✅', desc:'Релевантный документ найден сразу → один проход без переформулировок. transforms=0, generations=1.',
+    steps:['retrieve(query="Что такое парацетамол?") → 1 док.','grade_documents → релевантных 1/1','generate #1','grade_generation → grounded ✓  answers ✓','⇒ END'] },
+  'Corrective': { em:'🔁', desc:'Первый поиск отдал мусор → грейдер всё отсеял → transform_query → повторный поиск релевантен. transforms=1.',
+    steps:['retrieve("Что за ибупрофен?") → 1 док.','grade_documents → релевантных 0/1','transform_query #1 → "ибупрофен НПВС"','retrieve("ибупрофен НПВС") → 1 док.','grade_documents → релевантных 1/1','generate #1','grade_generation → grounded ✓  answers ✓','⇒ END'] },
+  'Hallucination': { em:'👻', desc:'Первый ответ не обоснован контекстом → перегенерация. generations=2.',
+    steps:['retrieve → 1 док.','grade_documents → релевантных 1/1','generate #1  (выдуманный)','grade_generation → grounded ✗','generate #2  (по контексту)','grade_generation → grounded ✓  answers ✓','⇒ END'] },
+  'Web search': { em:'🌐', desc:'Локальный корпус пуст, лимит попыток переформулировки выбран до конца → fallback во внешний поиск. transforms=2, web_search=1.',
+    steps:['retrieve → grade_documents → 0/1','transform_query #1 → retrieve → 0/1','transform_query #2 → retrieve → 0/1','web_search("Что такое аспирин?") → 1 док.','generate #1','grade_generation → grounded ✓  answers ✓','⇒ END'] },
+  'Защита от петель': { em:'🛡️', desc:'Релевантного нет вовсе и web_search не подключён → граф не зацикливается, упирается в max_transforms и честно отвечает «не нашёл».',
+    steps:['retrieve → 0/1 → transform #1 → retrieve → 0/1','transform #2 → retrieve → 0/1','лимит попыток исчерпан · web нет','generate #1  → «нет информации»','grade_generation → answers ✗ · лимит исчерпан','⇒ END · честный «не нашёл»'] }
+};
+
+function nodeClick(id) {
+  const n = NODES[id]; if (!n) return;
+  const edges = n.edges.map(e =>
+    `<div class="edge"><span class="arr">→</span><code>${e.to}</code><span class="${e.cond?'cond':'uncond'}">${e.label}</span></div>`).join('');
+  const card = document.getElementById('node-card');
+  card.classList.add('glow');
+  card.innerHTML = `
+    <div class="node-head">
+      <span class="node-title" style="color:${n.c}">${id}</span>
+      <span class="node-kind" style="color:${n.c};background:${n.c}1a;border:1px solid ${n.c}55">${n.kind}</span>
+    </div>
+    <div class="node-desc">${n.desc}</div>
+    <div class="io">
+      <div class="box in"><div class="t">читает</div><code>${n.reads}</code></div>
+      <div class="box out"><div class="t">пишет в state</div><code>${n.writes}</code></div>
+    </div>
+    <div class="edges-out"><div class="lbl">рёбра наружу</div>${edges}</div>
+    <div class="file-ref">📄 ${n.file}</div>`;
+  // подсветка
+  document.querySelectorAll('.mermaid .node').forEach(el => el.style.opacity = '0.4');
+  const sel = [...document.querySelectorAll('.mermaid .node')]
+    .find(el => (el.id||'').includes('-'+id+'-') || el.textContent.trim().startsWith(id));
+  if (sel) sel.style.opacity = '1';
+}
+window.nodeClick = nodeClick;
+
+document.getElementById('state-card').innerHTML = STATE.map(([k,d]) =>
+  `<div class="state-row"><code>${k}</code><span class="d">${d}</span></div>`).join('');
+
+const tabsEl = document.getElementById('tabs');
+const traceEl = document.getElementById('trace');
+const descEl = document.getElementById('scenario-desc');
+function showScenario(name) {
+  const s = SCENARIOS[name];
+  traceEl.innerHTML = s.steps.map((st,i) =>
+    `<span class="ln" style="animation-delay:${i*45}ms"><span class="arrow">${st.startsWith('⇒')?'':' · '}</span>${st}</span>`).join('');
+  descEl.textContent = s.desc;
+  [...tabsEl.children].forEach(t => t.classList.toggle('active', t.dataset.name === name));
+}
+Object.keys(SCENARIOS).forEach(name => {
+  const t = document.createElement('div');
+  t.className = 'tab'; t.dataset.name = name;
+  t.innerHTML = `<span class="em">${SCENARIOS[name].em}</span>${name}`;
+  t.onclick = () => showScenario(name);
+  tabsEl.appendChild(t);
+});
+showScenario('Happy path');
+</script>
+</body>
+</html>

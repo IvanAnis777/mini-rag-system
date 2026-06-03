@@ -4,7 +4,7 @@
  - happy path: релевантные документы → генерация без переформулировок;
  - corrective path: первый поиск пустой → transform_query → повторный retrieve → генерация;
  - hallucination path: первый ответ не обоснован → повторная генерация;
- - бюджет переформулировок не превышается.
+ - лимит попыток переформулировки не превышается.
 """
 
 import pytest
@@ -140,3 +140,36 @@ async def test_transform_budget_is_respected():
     assert out["transforms"] <= 2
     # ретрив вызывался стартово + по разу на каждую переформулировку
     assert retr_calls["n"] <= 3
+
+
+@pytest.mark.asyncio
+async def test_web_search_fallback_when_budget_exhausted():
+    """Локальный корпус пуст, лимит попыток переформулировки исчерпан → CRAG-fallback в web_search."""
+    web_calls = {"n": 0}
+
+    async def retriever(query, limit):
+        return [{"content": "Нерелевантный локальный текст.", "score": 0.1}]
+
+    async def web_search(query):
+        web_calls["n"] += 1
+        return [{"content": "Аспирин — это ацетилсалициловая кислота.", "score": 0.8, "source": "web"}]
+
+    llm = make_llm({
+        # локальные доки всегда нерелевантны, веб-док — релевантен (но его не грейдим)
+        "Релевантен ли документ": lambda p: "yes" if "Аспирин" in p else "no",
+        "Переформулируй запрос": lambda p: "аспирин ацетилсалициловая кислота",
+        "Дай точный ответ": lambda p: "Аспирин — это ацетилсалициловая кислота.",
+        "Полностью ли ответ обоснован": lambda p: "yes",
+        "Отвечает ли ответ": lambda p: "yes",
+    })
+
+    graph = CorrectiveRagGraph(
+        retriever, llm, web_search=web_search, max_transforms=2, max_generations=2
+    ).build()
+    out = await graph.ainvoke({"question": "Что такое аспирин?"})
+
+    assert web_calls["n"] == 1                    # внешний поиск сработал ровно раз
+    assert out["transforms"] == 2                 # сперва исчерпали весь лимит попыток переформулировки
+    assert "Аспирин" in out["generation"]         # ответ построен на веб-документе
+    assert out["grounded"] and out["answers_question"]
+    assert any("web_search" in step for step in out["trace"])  # узел реально прошёл
