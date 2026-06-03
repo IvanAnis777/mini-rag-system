@@ -3,7 +3,8 @@
 Один и тот же агентный граф (LangGraph) и Ragas-оценка работают на любом бэкенде:
   - llama     — локальный llama.cpp (OpenAI-совместимый сервер), без внешних API;
   - anthropic — Claude (требует ANTHROPIC_API_KEY);
-  - openai    — GPT (требует OPENAI_API_KEY).
+  - openai    — GPT (требует OPENAI_API_KEY);
+  - groq      — Groq (OpenAI-совместимый, требует GROQ_API_KEY; сильная модель «бесплатно»).
 
 Выбор через переменную окружения LLM_BACKEND (см. app/core/config.py:LLMSettings).
 SDK импортируются лениво — пакет нужен только для реально выбранного бэкенда.
@@ -69,10 +70,34 @@ async def _openai_complete(prompt: str, system_prompt: Optional[str] = None) -> 
     return response.choices[0].message.content or ""
 
 
+async def _groq_complete(prompt: str, system_prompt: Optional[str] = None) -> str:
+    # Groq — OpenAI-совместимый API, поэтому переиспользуем клиент openai с другим base_url.
+    # Бесплатный, но с rate-лимитами; сильная модель (llama-3.3-70b) — годится как
+    # «нормальный» бэкенд графа вместо локального qwen-7b.
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(
+        api_key=settings.llm.groq_api_key or None,
+        base_url="https://api.groq.com/openai/v1",
+    )
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    response = await client.chat.completions.create(
+        model=settings.llm.groq_model,
+        max_tokens=settings.llama.max_tokens,
+        temperature=settings.llama.temperature,
+        messages=messages,
+    )
+    return response.choices[0].message.content or ""
+
+
 _BACKENDS = {
     "llama": _llama_complete,
     "anthropic": _anthropic_complete,
     "openai": _openai_complete,
+    "groq": _groq_complete,
 }
 
 

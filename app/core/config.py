@@ -60,14 +60,16 @@ class RedisSettings(BaseModel):
 class LLMSettings(BaseModel):
     """Выбор провайдера LLM для агентного графа и оценки.
 
-    backend: llama (локальный llama.cpp) | anthropic (Claude) | openai (GPT).
+    backend: llama (локальный llama.cpp) | anthropic (Claude) | openai (GPT) | groq.
     Облачные бэкенды требуют соответствующего API-ключа в окружении.
     """
     backend: str = _env("LLM_BACKEND", "llama")
     anthropic_model: str = _env("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     openai_model: str = _env("OPENAI_MODEL", "gpt-4o-mini")
+    groq_model: str = _env("GROQ_MODEL", "llama-3.3-70b-versatile")
     anthropic_api_key: str = _env("ANTHROPIC_API_KEY", "")
     openai_api_key: str = _env("OPENAI_API_KEY", "")
+    groq_api_key: str = _env("GROQ_API_KEY", "")
 
 
 class RAGSettings(BaseModel):

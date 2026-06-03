@@ -75,16 +75,46 @@ pytest tests/test_rag_graph.py -o asyncio_mode=auto -q
 ## Оценка качества (Ragas)
 
 Численная оценка агентного RAG на доменном фарма-корпусе (`eval/corpus/`, QA в
-`eval/pharma_qa.jsonl`). Метрики: **faithfulness**, **answer relevancy**,
-**context precision**, **context recall**. Судьёй по умолчанию выступает локальная
-llama (без внешних API).
+`eval/pharma_qa.jsonl`).
+
+- **LLM-as-judge метрики (Ragas):** faithfulness, answer relevancy, context precision, context recall.
+- **Retrieval-метрики (без судьи):** precision@k, recall@k (hit-rate) — считаются офлайн
+  по gold-документу (`source` в QA), не требуют API-ключей.
+- **Трекинг:** каждый прогон логируется в локальный MLflow (`eval/mlruns/`).
 
 ```bash
-pip install -r requirements-eval.txt        # ragas + langchain-openai/anthropic + langchain-huggingface
-python eval/ingest_corpus.py                  # загрузить корпус в pgvector
-python eval/run_ragas.py                      # прогон + отчёт в eval/report.md
-# судья по умолчанию = LLM_BACKEND; переопределить: RAGAS_JUDGE=openai|anthropic|local
+# Изолированный venv: ragas тянет langchain-core<1, приложение — >=1.4 (несовместимы)
+python -m venv .venv-eval && .venv-eval/bin/pip install -r requirements-eval.txt
+python eval/ingest_corpus.py                          # загрузить корпус в pgvector (нужен стек)
+RAGAS_JUDGE=groq .venv-eval/bin/python eval/run_ragas.py evaluate   # 4 метрики + отчёт
+.venv-eval/bin/python eval/run_ragas.py retrieval     # только precision@k/recall@k, без судьи
+mlflow ui --backend-store-uri eval/mlruns             # сравнить прогоны
+# судья: RAGAS_JUDGE=groq|openai|anthropic|local (по умолчанию = LLM_BACKEND)
 ```
+
+### Результаты: vector-only → hybrid + RRF + reranker
+
+Один и тот же набор из 15 фарма-вопросов, судья `llama-3.3-70b` (Groq):
+
+| Метрика | vector-only | **hybrid + reranker** | Δ |
+|---|---|---|---|
+| faithfulness | 0.80 | **0.952** | +0.15 |
+| answer relevancy | 0.68 | **0.766** | +0.09 |
+| context precision | 0.83 | **0.933** | +0.10 |
+| context recall | 0.85 | **0.923** | +0.07 |
+| precision@k (retrieval) | — | **0.900** | — |
+| recall@k / hit-rate | — | **0.933** | — |
+
+Гибридный поиск (вектор + BM25 через RRF) и cross-encoder reranking подняли **все
+четыре** метрики качества.
+
+**Разбор слабых мест (оба упираются в слабую LLM графа, `qwen2.5-7b`):**
+- *answer relevancy 0.04* на вопросе о дозе парацетамола — ретрив корректен, но генератор
+  свалился в китайский язык (нестабильность 7B-модели);
+- *recall-промах* на «амоксициллин и вирусы» — ответ **есть** в корпусе и **извлекается**
+  (BM25 по слову «вирусы»), но LLM-грейдер ложно отсеял релевантный чанк. Грейдер на
+  `llama-3.3-70b` тот же чанк помечает как релевантный → фикс: сильная модель графа
+  (`LLM_BACKEND=groq|anthropic|openai`).
 
 ## Выбор модели и бэкенда
 
@@ -111,6 +141,7 @@ Mistral-7B-v0.3, Llama-3.1-8B (все Q4_K_M).
 LLM_BACKEND=llama                                   # локально, по умолчанию, без ключей
 LLM_BACKEND=anthropic  ANTHROPIC_API_KEY=sk-ant-... # Claude
 LLM_BACKEND=openai     OPENAI_API_KEY=sk-...         # GPT
+LLM_BACKEND=groq       GROQ_API_KEY=gsk_...          # Groq (OpenAI-совместимый, сильная модель «бесплатно»)
 ```
 
 ## Быстрый старт

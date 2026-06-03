@@ -37,6 +37,15 @@ SAMPLES_PATH = Path(__file__).parent / "samples.json"
 REPORT_PATH = Path(__file__).parent / "report.md"
 CORPUS_DIR = Path(__file__).parent / "corpus"
 
+# Baseline «ДО» (vector-only поиск, тот же судья llama-3.3-70b) — точка отсчёта для
+# сравнения с гибридным поиском + reranker. Ключи = имена колонок Ragas.
+BASELINE_METRICS = {
+    "faithfulness": 0.80,
+    "answer_relevancy": 0.68,
+    "llm_context_precision_with_reference": 0.83,
+    "context_recall": 0.85,
+}
+
 
 def load_qa():
     rows = []
@@ -291,12 +300,17 @@ def write_report(result, samples):
     lines = ["# Ragas-отчёт: агентный RAG (фарма-корпус)", ""]
     lines.append(f"Вопросов: {len(samples)} · судья: `{os.getenv('RAGAS_JUDGE', 'local')}`")
     lines.append("")
-    lines.append("## Средние метрики (LLM-судья)")
+    lines.append("## Средние метрики (LLM-судья): vector-only → hybrid+reranker")
     lines.append("")
-    lines.append("| Метрика | Среднее |")
-    lines.append("|---|---|")
+    lines.append("| Метрика | baseline (vector-only) | сейчас | Δ |")
+    lines.append("|---|---|---|---|")
     for col in metric_cols:
-        lines.append(f"| {col} | {df[col].mean():.3f} |")
+        cur = df[col].mean()
+        base = BASELINE_METRICS.get(col)
+        if base is not None:
+            lines.append(f"| {col} | {base:.3f} | {cur:.3f} | {cur - base:+.3f} |")
+        else:
+            lines.append(f"| {col} | — | {cur:.3f} | — |")
     lines.append("")
     # retrieval-метрики считаем тут же — они не зависят от судьи
     rm = compute_retrieval_metrics(samples)
